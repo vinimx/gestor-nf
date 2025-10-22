@@ -7,10 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/useToast";
-import { useEmpresas } from "@/hooks/useEmpresas";
 import { Empresa } from "@/types/models";
-import { useState } from "react";
 import { FormEmpresa } from "../FormEmpresa";
 
 interface ModalEmpresaProps {
@@ -18,6 +15,7 @@ interface ModalEmpresaProps {
   onOpenChange: (open: boolean) => void;
   empresa?: Empresa | null;
   onSuccess?: () => void;
+  onSubmit: (data: Partial<Empresa>) => Promise<void>;
 }
 
 export function ModalEmpresa({
@@ -25,35 +23,16 @@ export function ModalEmpresa({
   onOpenChange,
   empresa,
   onSuccess,
+  onSubmit,
 }: ModalEmpresaProps) {
-  const { toast } = useToast();
-  const { createEmpresa, updateEmpresa } = useEmpresas();
-  const [submitting, setSubmitting] = useState(false);
-
   const handleSubmit = async (data: Partial<Empresa>) => {
-    setSubmitting(true);
     try {
-      if (empresa) {
-        // Atualizar empresa existente
-        await updateEmpresa(empresa.id, data);
-      } else {
-        // Criar nova empresa
-        await createEmpresa(data as Omit<Empresa, "id" | "created_at" | "updated_at">);
-      }
-
-      toast({
-        title: empresa ? "Empresa atualizada!" : "Empresa criada!",
-        description: `${data.nome} foi ${empresa ? "atualizada" : "cadastrada"} com sucesso.`,
-        variant: "default",
-      });
-
+      await onSubmit(data);
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
-      // Erro já tratado no FormEmpresa
+      // Erro já tratado no hook/FormEmpresa
       console.error("Erro ao salvar empresa:", error);
-    } finally {
-      setSubmitting(false);
     }
   };
 

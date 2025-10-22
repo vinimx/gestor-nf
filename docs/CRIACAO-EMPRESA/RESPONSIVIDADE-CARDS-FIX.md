@@ -1,288 +1,255 @@
-# 🎨 Correção de Responsividade dos Cards de Empresa
+# 📱 Correção de Responsividade dos Cards de Empresa
 
 ## 🎯 Problema Identificado
 
-Os cards de empresa apresentavam problemas de responsividade:
-- ❌ Textos longos saíam do card
-- ❌ Sem quebra de linha apropriada
-- ❌ Emails e endereços estouravam o layout
-- ❌ Nome da empresa não tinha limite de linhas
-- ❌ CNPJ quebrava de forma inadequada
+Os cards de empresa apresentavam problemas de responsividade em dispositivos móveis e tablets:
+- Textos longos escapavam dos limites do card
+- Emails e endereços não quebravam adequadamente
+- CNPJ e nomes de empresa causavam overflow horizontal
+- Layout quebrava em telas pequenas
 
----
+## ✅ Solução Implementada
 
-## ✅ Soluções Implementadas
-
-### 1. **Header do Card - Nome e Badge**
-
-**Antes:**
+### 1. **Container Principal (Card)**
 ```tsx
-<div className="flex items-start justify-between">
-  <div className="space-y-1">
-    <div className="flex items-center gap-2">
-      <CardTitle className="text-lg transition-colors group-hover:text-primary">
-        {empresa.nome}
-      </CardTitle>
-      <Badge variant={empresa.ativo ? "success" : "secondary"}>
-        {empresa.ativo ? "Ativo" : "Inativo"}
-      </Badge>
-    </div>
-  </div>
-</div>
+<Card className="... overflow-hidden">
 ```
+- Adicionado `overflow-hidden` para garantir que nenhum conteúdo escape
 
-**Depois:**
+### 2. **CardHeader**
 ```tsx
-<div className="flex items-start justify-between gap-2">
-  <div className="min-w-0 flex-1 space-y-1">
-    <div className="flex items-start gap-2 flex-wrap">
-      <CardTitle className="text-lg transition-colors group-hover:text-primary break-words line-clamp-2 flex-1 min-w-0">
-        {empresa.nome}
-      </CardTitle>
-      <Badge variant={empresa.ativo ? "success" : "secondary"} className="shrink-0">
-        {empresa.ativo ? "Ativo" : "Inativo"}
-      </Badge>
-    </div>
-  </div>
-</div>
+<CardHeader className="pb-3 overflow-hidden">
+  <div className="flex items-start justify-between gap-2 min-w-0 w-full">
+    <div className="min-w-0 flex-1 space-y-1 overflow-hidden">
 ```
+- `overflow-hidden` no header
+- `min-w-0` e `w-full` para respeitar limites do container
+- Todos os containers filhos com `min-w-0` para permitir encolhimento
 
-**Classes Adicionadas:**
-- ✅ `min-w-0` - Permite que o flex item encolha além do seu conteúdo mínimo
-- ✅ `flex-1` - Permite que o elemento cresça e ocupe espaço disponível
-- ✅ `break-words` - Quebra palavras longas para evitar overflow
-- ✅ `line-clamp-2` - Limita o título a 2 linhas com reticências
-- ✅ `shrink-0` no Badge - Impede que o badge encolha
-- ✅ `flex-wrap` - Permite que os itens quebrem linha se necessário
-- ✅ `gap-2` - Adiciona espaçamento entre elementos
-
----
-
-### 2. **CNPJ**
-
-**Antes:**
+### 3. **Título da Empresa**
 ```tsx
-<CardDescription className="flex items-center gap-1">
-  <Building2 className="h-3 w-3" />
+<CardTitle 
+  className="text-lg transition-colors group-hover:text-primary break-words line-clamp-2 flex-1 min-w-0 max-w-full overflow-hidden hyphens-auto" 
+  style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
+>
+  {empresa.nome}
+</CardTitle>
+```
+**Classes CSS:**
+- `max-w-full` - largura máxima 100%
+- `overflow-hidden` - esconde conteúdo que ultrapassa
+- `hyphens-auto` - hifenização automática
+- `line-clamp-2` - limita a 2 linhas
+- `break-words` - quebra palavras se necessário
+
+**Inline Styles:**
+- `wordBreak: 'break-word'` - quebra entre palavras
+- `overflowWrap: 'break-word'` - wrap inteligente
+
+### 4. **CNPJ**
+```tsx
+<span 
+  className="break-all truncate" 
+  style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}
+>
   CNPJ: {maskCNPJ(empresa.cnpj)}
-</CardDescription>
+</span>
 ```
+**Classes CSS:**
+- `truncate` - trunca com reticências se necessário
+- `break-all` - quebra em qualquer caractere
 
-**Depois:**
+**Inline Styles:**
+- `wordBreak: 'break-all'` - força quebra em qualquer ponto
+- `overflowWrap: 'anywhere'` - quebra onde for necessário
+
+### 5. **Email**
 ```tsx
-<CardDescription className="flex items-center gap-1 text-xs break-all">
-  <Building2 className="h-3 w-3 shrink-0" />
-  <span className="break-all">CNPJ: {maskCNPJ(empresa.cnpj)}</span>
-</CardDescription>
+<span 
+  className="text-xs break-all min-w-0 max-w-full" 
+  style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}
+>
+  {empresa.email}
+</span>
 ```
+**Estratégia:**
+- Quebra agressiva (`break-all`) para emails longos
+- `min-w-0` e `max-w-full` para respeitar limites do container
+- `overflowWrap: 'anywhere'` permite quebra em qualquer ponto
 
-**Classes Adicionadas:**
-- ✅ `break-all` - Quebra em qualquer caractere se necessário
-- ✅ `shrink-0` no ícone - Mantém o ícone no tamanho original
-- ✅ `text-xs` - Reduz o tamanho da fonte para caber melhor
-
----
-
-### 3. **Email**
-
-**Antes:**
+### 6. **Telefone**
 ```tsx
-<div className="flex items-center gap-2 text-muted-foreground">
-  <Mail className="h-3.5 w-3.5" />
-  <span className="text-xs">{empresa.email}</span>
-</div>
+<span className="text-xs whitespace-nowrap">
+  {maskPhone(empresa.telefone)}
+</span>
 ```
+**Estratégia:**
+- `whitespace-nowrap` - não quebra, pois telefones mascarados são curtos
+- Mantém formatação consistente
 
-**Depois:**
+### 7. **Inscrição Estadual**
 ```tsx
-<div className="flex items-center gap-2 text-muted-foreground min-w-0">
-  <Mail className="h-3.5 w-3.5 shrink-0" />
-  <span className="text-xs break-all overflow-hidden">{empresa.email}</span>
-</div>
-```
-
-**Classes Adicionadas:**
-- ✅ `min-w-0` - Permite que o container encolha
-- ✅ `shrink-0` no ícone - Mantém o ícone visível
-- ✅ `break-all` - Quebra emails longos adequadamente
-- ✅ `overflow-hidden` - Esconde qualquer overflow residual
-
----
-
-### 4. **Endereço**
-
-**Antes:**
-```tsx
-<div className="flex items-start gap-2 text-muted-foreground">
-  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-  <span className="text-xs leading-relaxed">{enderecoCompleto}</span>
-</div>
-```
-
-**Depois:**
-```tsx
-<div className="flex items-start gap-2 text-muted-foreground min-w-0">
-  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-  <span className="text-xs leading-relaxed break-words overflow-hidden">
-    {enderecoCompleto}
+<div className="text-muted-foreground min-w-0 max-w-full overflow-hidden">
+  <span className="font-medium">IE:</span>{" "}
+  <span 
+    className="break-all" 
+    style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}
+  >
+    {empresa.inscricao_estadual}
   </span>
 </div>
 ```
+**Estratégia:**
+- Container com `overflow-hidden`
+- Quebra agressiva para números longos
 
-**Classes Adicionadas:**
-- ✅ `min-w-0` - Permite que o container encolha
-- ✅ `break-words` - Quebra palavras longas no endereço
-- ✅ `overflow-hidden` - Previne overflow
-
----
-
-### 5. **Inscrição Estadual**
-
-**Antes:**
+### 8. **Endereço**
 ```tsx
-<div className="text-muted-foreground">
-  <span className="font-medium">IE:</span>{" "}
-  {empresa.inscricao_estadual}
-</div>
-```
-
-**Depois:**
-```tsx
-<div className="text-muted-foreground break-words">
-  <span className="font-medium">IE:</span>{" "}
-  <span className="break-all">{empresa.inscricao_estadual}</span>
-</div>
-```
-
-**Classes Adicionadas:**
-- ✅ `break-words` no container
-- ✅ `break-all` no valor - Para IEs longas
-
----
-
-### 6. **Botão de Menu**
-
-**Antes:**
-```tsx
-<Button 
-  variant="ghost" 
-  size="icon" 
-  className="h-8 w-8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+<span 
+  className="text-xs leading-relaxed min-w-0 max-w-full" 
+  style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
 >
+  {enderecoCompleto}
+</span>
 ```
+**Estratégia:**
+- `break-word` - quebra entre palavras mantendo legibilidade
+- `leading-relaxed` - espaçamento adequado entre linhas
+- `min-w-0` e `max-w-full` - respeita limites
 
-**Depois:**
+### 9. **Badge de Status**
 ```tsx
-<Button 
-  variant="ghost" 
-  size="icon" 
-  className="h-8 w-8 shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+<Badge 
+  variant={empresa.ativo ? "success" : "secondary"} 
+  className="shrink-0 whitespace-nowrap"
 >
+  {empresa.ativo ? "Ativo" : "Inativo"}
+</Badge>
 ```
+**Estratégia:**
+- `shrink-0` - não encolhe
+- `whitespace-nowrap` - mantém em uma linha
 
-**Classes Adicionadas:**
-- ✅ `shrink-0` - Impede que o botão encolha e fique inutilizável
+### 10. **CardContent**
+```tsx
+<CardContent className="space-y-2 text-sm overflow-hidden">
+```
+- `overflow-hidden` para todo o conteúdo
+- Garante que nada escape do card
+
+## 🎨 Estratégias de Quebra de Texto
+
+### **Para Textos Legíveis (Nomes, Endereços)**
+```css
+word-break: break-word
+overflow-wrap: break-word
+hyphens: auto
+```
+- Quebra inteligente entre palavras
+- Hifenização quando apropriado
+- Mantém legibilidade
+
+### **Para Códigos/Números (CNPJ, Email, IE)**
+```css
+word-break: break-all
+overflow-wrap: anywhere
+```
+- Quebra em qualquer caractere
+- Ideal para sequências sem espaços
+- Prioriza caber no espaço
+
+### **Para Conteúdo Curto (Telefone, Status)**
+```css
+white-space: nowrap
+```
+- Não quebra
+- Mantém em uma única linha
+- Usa `shrink-0` se necessário
+
+## 📐 Classes CSS Utilizadas
+
+### **Tailwind Classes**
+- `min-w-0` - permite encolhimento do flex item
+- `max-w-full` - largura máxima 100%
+- `overflow-hidden` - esconde overflow
+- `break-words` - quebra palavras longas
+- `break-all` - quebra em qualquer caractere
+- `line-clamp-2` - limita a 2 linhas
+- `truncate` - trunca com reticências
+- `hyphens-auto` - hifenização automática
+- `whitespace-nowrap` - não quebra linha
+- `shrink-0` - não encolhe
+- `leading-relaxed` - espaçamento relaxado entre linhas
+
+### **Inline Styles**
+- `wordBreak` - controle fino da quebra
+- `overflowWrap` - controle de wrap
+
+## 📱 Resultado Final
+
+### ✅ Desktop
+- Layout espaçoso e elegante
+- Hover effects suaves
+- Informações bem distribuídas
+
+### ✅ Tablet
+- Adaptação automática ao espaço disponível
+- Cards mantêm proporção adequada
+- Textos quebram inteligentemente
+
+### ✅ Mobile
+- Nenhum texto escapa do card
+- Quebras de linha apropriadas
+- Mantém legibilidade em telas pequenas
+- Email e endereços quebram sem perder contexto
+
+## 🔍 Pontos-Chave da Solução
+
+1. **Hierarquia de Overflow**
+   - Card → `overflow-hidden`
+   - Header → `overflow-hidden`
+   - Content → `overflow-hidden`
+   - Cada elemento filho → `min-w-0 max-w-full`
+
+2. **Flexbox com min-width: 0**
+   - Permite que flex items encolham além do conteúdo mínimo
+   - Essencial para quebra de texto em containers flex
+
+3. **Dupla Abordagem (Classes + Inline Styles)**
+   - Classes Tailwind para estrutura
+   - Inline styles para controle fino de quebra
+
+4. **Diferenciação por Tipo de Conteúdo**
+   - Textos legíveis → `break-word`
+   - Códigos/números → `break-all`
+   - Conteúdo curto → `nowrap`
+
+## 🚀 Performance
+
+- Sem JavaScript adicional
+- Apenas CSS nativo
+- Renderização otimizada
+- Compatível com todos os navegadores modernos
+
+## 📝 Aprendizados
+
+1. **`min-w-0` é crucial** em containers flex para permitir quebra de texto
+2. **`overflow-hidden`** deve estar em toda a hierarquia
+3. **Combinar `break-word` com `hyphens-auto`** melhora legibilidade
+4. **Inline styles** são necessários para `wordBreak` e `overflowWrap`
+5. **Diferentes tipos de conteúdo** precisam de estratégias diferentes
+
+## ✨ Conclusão
+
+A solução implementada garante que os cards de empresa sejam **100% responsivos** em qualquer dispositivo, mantendo:
+- ✅ Legibilidade
+- ✅ Estética
+- ✅ Performance
+- ✅ Acessibilidade
+- ✅ Experiência do usuário consistente
 
 ---
 
-## 📊 Classes Tailwind Usadas
-
-| Classe | Função | Onde Usar |
-|--------|--------|-----------|
-| `min-w-0` | Permite que flex items encolham além do conteúdo mínimo | Containers de texto |
-| `flex-1` | Permite que elemento cresça e ocupe espaço | Títulos principais |
-| `shrink-0` | Impede que elemento encolha | Ícones e badges |
-| `break-words` | Quebra palavras longas | Textos gerais |
-| `break-all` | Quebra em qualquer caractere | Emails, CNPJs, IEs |
-| `line-clamp-2` | Limita a 2 linhas com reticências | Títulos |
-| `overflow-hidden` | Esconde overflow | Containers de texto |
-| `flex-wrap` | Permite quebra de linha | Containers flexbox |
-| `gap-2` | Adiciona espaçamento | Entre elementos |
-
----
-
-## 🧪 Testes Realizados
-
-### Mobile (< 768px):
-- ✅ Nome longo com 2 linhas + reticências
-- ✅ Email quebra corretamente
-- ✅ Endereço quebra em múltiplas linhas
-- ✅ CNPJ quebra sem distorção
-- ✅ Badge não sobrepõe o título
-- ✅ Botão de menu sempre visível
-
-### Tablet (768px - 1024px):
-- ✅ Grid de 2 colunas funciona
-- ✅ Cards mantêm proporção
-- ✅ Textos não estouram
-
-### Desktop (> 1024px):
-- ✅ Grid de 3 colunas funciona
-- ✅ Cards bem proporcionados
-- ✅ Hover effects funcionando
-
----
-
-## 🎯 Resultado Final
-
-### Antes:
-```
-┌─────────────────────────────────┐
-│ Nome Muito Muito Muito Longo Da Empresa Que Vai Sair Do Card [Ativo]
-│ CNPJ: 00.000.000/0000-00        │
-│ ✉ emailmuitomuitolongo@dominiomuitolongo.com.br
-│ 📍 Rua Com Nome Muito Longo Número 1234 Bairro Com Nome Longo Cidade...
-└─────────────────────────────────┘
-```
-
-### Depois:
-```
-┌─────────────────────────────────┐
-│ Nome Muito Muito Muito    [Ativo]
-│ Longo Da Empresa...        [⋮]  │
-│ CNPJ: 00.000.000/0000-00        │
-│ ✉ emailmuitomuitolongo@         │
-│    dominiomuitolongo.com.br     │
-│ 📍 Rua Com Nome Muito Longo     │
-│    Número 1234 Bairro...        │
-└─────────────────────────────────┘
-```
-
----
-
-## 📈 Build
-
-```bash
-✓ Compiled successfully in 43s
-✓ Linting: 0 errors
-✓ TypeScript: 0 errors
-✓ Bundle: 173 kB
-```
-
----
-
-## ✅ Checklist de Responsividade
-
-- ✅ Nome da empresa com `line-clamp-2`
-- ✅ CNPJ com `break-all`
-- ✅ Email com `break-all` e `overflow-hidden`
-- ✅ Endereço com `break-words`
-- ✅ IE com `break-all`
-- ✅ Ícones com `shrink-0`
-- ✅ Badge com `shrink-0`
-- ✅ Botão de menu com `shrink-0`
-- ✅ Containers com `min-w-0`
-- ✅ Flex com `gap-2` para espaçamento
-- ✅ Testado em mobile, tablet e desktop
-
----
-
-## 🎊 Conclusão
-
-Os cards agora são **100% responsivos** e funcionam perfeitamente em todas as resoluções!
-
-**Data da Correção:** 21/10/2025  
-**Arquivo Modificado:** `src/components/Empresas/ListaEmpresas/ItemEmpresa.tsx`  
-**Linhas Alteradas:** ~20 linhas  
-**Status:** ✅ **COMPLETO E TESTADO**
-
+**Data:** 21 de Outubro de 2025  
+**Autor:** Sistema de Gerenciamento de Empresas  
+**Status:** ✅ Implementado e Testado

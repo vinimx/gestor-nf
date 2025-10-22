@@ -124,12 +124,6 @@ export function FormEmpresa({ empresa, onSubmit, onCancel }: FormEmpresaProps) {
       // Submete
       await onSubmit(dataToValidate);
 
-      toast({
-        title: empresa ? "Empresa atualizada!" : "Empresa criada!",
-        description: `${formData.nome} foi ${empresa ? "atualizada" : "cadastrada"} com sucesso.`,
-        variant: "default",
-      });
-
       // Limpa formulário se for criação
       if (!empresa) {
         setFormData({
