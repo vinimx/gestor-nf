@@ -2,8 +2,11 @@
 
 import type React from "react";
 import { useState } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Settings,
   Search,
@@ -14,15 +17,20 @@ import {
   LogOut,
   Building2,
   Users,
+  Shield,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/useToast";
 
 interface MenuNavProps {
   children: React.ReactNode;
@@ -33,9 +41,106 @@ const sidebarItems = [
   { icon: Settings, label: "Configurações", href: "/configuracoes" },
 ];
 
+/**
+ * Mapeia roles para nomes amigáveis em português
+ */
+const roleNames: Record<string, string> = {
+  admin: "Administrador",
+  accountant: "Contador",
+  viewer: "Visualizador",
+};
+
+/**
+ * Mapeia roles para cores do badge
+ */
+const roleColors: Record<string, string> = {
+  admin: "bg-red-100 text-red-800 border-red-200",
+  accountant: "bg-blue-100 text-blue-800 border-blue-200",
+  viewer: "bg-green-100 text-green-800 border-green-200",
+};
+
+/**
+ * Gera iniciais do nome do usuário
+ */
+function getInitials(name: string): string {
+  if (!name) return "U";
+  const parts = name.trim().split(" ");
+  if (parts.length === 1) {
+    return parts[0].charAt(0).toUpperCase();
+  }
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+/**
+ * Componente de Avatar com fallback para iniciais
+ */
+function UserAvatar({ name, email }: { name?: string; email?: string }) {
+  const displayName = name || email || "Usuário";
+  const initials = getInitials(displayName);
+
+  return (
+    <div
+      className="flex h-10 w-10 items-center justify-center rounded-full font-semibold text-white"
+      style={{
+        background: "linear-gradient(135deg, var(--cor-primaria) 0%, var(--cor-secundaria) 100%)",
+        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export default function MenuNav({ children }: MenuNavProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const { user, signOut } = useAuth();
+  const router = useRouter();
+  const { toast } = useToast();
+
+  /**
+   * Handles user logout with loading state and feedback
+   */
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await signOut();
+      
+      toast({
+        title: "Logout realizado",
+        description: "Você saiu com sucesso do sistema.",
+      });
+      
+      // Pequeno delay para garantir que o toast seja exibido
+      setTimeout(() => {
+        router.push("/login");
+      }, 500);
+    } catch (error) {
+      console.error("Erro ao fazer logout:", error);
+      
+      // Mesmo em caso de erro, redirecionar para login
+      // pois o estado local já foi limpo
+      toast({
+        title: "Logout realizado",
+        description: "Você foi desconectado do sistema.",
+      });
+      
+      setTimeout(() => {
+        router.push("/login");
+      }, 500);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
+  // Extrair informações do usuário
+  const userName = user?.profile?.nome || user?.email?.split("@")[0] || "Usuário";
+  const userEmail = user?.email || "";
+  const userRole = user?.profile?.role || "viewer";
+  const roleName = roleNames[userRole] || userRole;
+  const roleColorClass = roleColors[userRole] || roleColors.viewer;
 
   return (
     <div
@@ -66,16 +171,27 @@ export default function MenuNav({ children }: MenuNavProps) {
                 <Menu className="h-5 w-5" />
               )}
             </Button>
-            <div className="flex flex-col">
-              <h1
-                className="text-base sm:text-lg font-semibold truncate"
-                style={{ color: "var(--cor-primaria)" }}
-              >
-                Gestor de NFs
-              </h1>
-              <p className="text-xs text-gray-500 hidden sm:block">
-                Escritório Ranicont
-              </p>
+            <div className="flex items-center gap-2">
+              <div className="relative w-8 h-8">
+                <Image
+                  src="/logo.png"
+                  alt="RaniCont"
+                  fill
+                  sizes="32px"
+                  className="object-contain"
+                />
+              </div>
+              <div className="flex flex-col">
+                <h1
+                  className="text-base sm:text-lg font-semibold truncate"
+                  style={{ color: "var(--cor-primaria)" }}
+                >
+                  Gestor de NFs
+                </h1>
+                <p className="text-xs text-gray-500 hidden sm:block">
+                  Escritório Ranicont
+                </p>
+              </div>
             </div>
           </div>
 
@@ -112,24 +228,53 @@ export default function MenuNav({ children }: MenuNavProps) {
             {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <User
-                    className="h-5 w-5"
-                    style={{ color: "var(--cor-texto)" }}
-                  />
+                <Button
+                  variant="ghost"
+                  className="relative h-10 w-10 rounded-full p-0 hover:opacity-80 transition-opacity"
+                >
+                  <UserAvatar name={userName} email={userEmail} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 sm:w-56"
+                className="w-64"
                 style={{
                   background: "var(--background-color)",
                   boxShadow: "var(--sombra-suave)",
                   border: "1px solid var(--cor-borda)",
                 }}
               >
+                {/* User Info Header */}
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex items-start gap-3 p-2">
+                    <UserAvatar name={userName} email={userEmail} />
+                    <div className="flex flex-col space-y-1 flex-1 min-w-0">
+                      <p className="text-sm font-semibold leading-none text-gray-900 truncate">
+                        {userName}
+                      </p>
+                      <p className="text-xs leading-none text-gray-500 truncate">
+                        {userEmail}
+                      </p>
+                      <Badge
+                        className={cn(
+                          "w-fit text-xs font-medium mt-1",
+                          roleColorClass
+                        )}
+                        variant="outline"
+                      >
+                        <Shield className="h-3 w-3 mr-1" />
+                        {roleName}
+                      </Badge>
+                    </div>
+                  </div>
+                </DropdownMenuLabel>
+
+                <DropdownMenuSeparator className="my-1" />
+
+                {/* Menu Items */}
                 <DropdownMenuItem
                   className="cursor-pointer transition-colors flex items-center gap-2 px-3 py-2 text-sm"
+                  onClick={() => router.push("/perfil")}
                   style={
                     {
                       "--hover-bg": "var(--cor-primaria, #1976d2)",
@@ -148,10 +293,12 @@ export default function MenuNav({ children }: MenuNavProps) {
                   }}
                 >
                   <User className="h-4 w-4 flex-shrink-0" />
-                  <span>Perfil</span>
+                  <span>Meu Perfil</span>
                 </DropdownMenuItem>
+
                 <DropdownMenuItem
                   className="cursor-pointer transition-colors flex items-center gap-2 px-3 py-2 text-sm"
+                  onClick={() => router.push("/configuracoes")}
                   style={
                     {
                       "--hover-bg": "var(--cor-secundaria, #219b9d)",
@@ -172,9 +319,14 @@ export default function MenuNav({ children }: MenuNavProps) {
                   <Settings className="h-4 w-4 flex-shrink-0" />
                   <span>Configurações</span>
                 </DropdownMenuItem>
+
                 <DropdownMenuSeparator className="my-1" />
+
+                {/* Logout with loading state */}
                 <DropdownMenuItem
                   className="cursor-pointer transition-colors flex items-center gap-2 px-3 py-2 text-sm"
+                  disabled={isLoggingOut}
+                  onClick={handleLogout}
                   style={
                     {
                       "--hover-bg": "#e53935",
@@ -182,17 +334,25 @@ export default function MenuNav({ children }: MenuNavProps) {
                     } as React.CSSProperties
                   }
                   onMouseOver={(e) => {
-                    e.currentTarget.style.background = "#e53935";
-                    e.currentTarget.style.color = "#fff";
+                    if (!isLoggingOut) {
+                      e.currentTarget.style.background = "#e53935";
+                      e.currentTarget.style.color = "#fff";
+                    }
                   }}
                   onMouseOut={(e) => {
-                    e.currentTarget.style.background =
-                      "var(--background-color)";
-                    e.currentTarget.style.color = "var(--cor-texto)";
+                    if (!isLoggingOut) {
+                      e.currentTarget.style.background =
+                        "var(--background-color)";
+                      e.currentTarget.style.color = "var(--cor-texto)";
+                    }
                   }}
                 >
-                  <LogOut className="h-4 w-4 flex-shrink-0" />
-                  <span>Sair</span>
+                  {isLoggingOut ? (
+                    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <LogOut className="h-4 w-4 flex-shrink-0" />
+                  )}
+                  <span>{isLoggingOut ? "Saindo..." : "Sair"}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

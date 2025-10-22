@@ -194,20 +194,94 @@ gestor-nf/
 
 ## 🔐 Autenticação e Autorização
 
+O sistema implementa autenticação completa com Supabase Auth, incluindo login, registro, recuperação de senha, proteção de rotas e controle de acesso baseado em roles.
+
+### Funcionalidades de Autenticação
+
+- ✅ **Login** com email e senha
+- ✅ **Registro** de novos usuários com validação
+- ✅ **Recuperação de senha** via email
+- ✅ **Redefinição de senha** com token seguro
+- ✅ **Verificação de email** após registro
+- ✅ **Logout** com limpeza de sessão
+- ✅ **Proteção de rotas** (middleware + AuthGuard)
+- ✅ **Controle de acesso** baseado em roles
+- ✅ **Sessão persistente** entre reloads
+- ✅ **Toast notifications** para feedback
+- ✅ **Validação em tempo real** nos formulários
+
 ### Roles de Usuário
 
-- **admin**: Acesso total ao sistema
-- **accountant**: Pode gerenciar notas fiscais da sua empresa
-- **viewer**: Apenas visualização
+O sistema possui 3 níveis de acesso:
+
+| Role | Descrição | Permissões |
+|------|-----------|------------|
+| **admin** | Administrador | Acesso total ao sistema, gerencia usuários e empresas |
+| **accountant** | Contador | Gerencia notas fiscais da sua empresa |
+| **viewer** | Visualizador | Apenas visualização, sem edição |
+
+### Proteção de Rotas
+
+**Defesa em Camadas**:
+
+1. **Middleware (Servidor)**: Verifica sessão antes da página carregar
+2. **AuthGuard (Cliente)**: Proteção adicional no React
+3. **RLS (Banco de Dados)**: Políticas de segurança no Supabase
+
+**Rotas Públicas** (sem autenticação):
+- `/login` - Página de login
+- `/registro` - Registro de novos usuários
+- `/recuperar-senha` - Recuperação de senha
+- `/redefinir-senha` - Redefinição com token
+- `/verificar-email` - Confirmação de email
+
+**Rotas Protegidas** (requer autenticação):
+- `/` - Dashboard principal
+- `/empresas` - Gestão de empresas
+
+**Rotas Admin** (requer role admin):
+- `/admin/*` - Área administrativa
+- `/usuarios/*` - Gerenciamento de usuários
 
 ### Row Level Security (RLS)
 
 O sistema implementa RLS no Supabase para garantir que:
 
-- Usuários só acessem dados da sua empresa
-- Admins tenham acesso a todas as empresas
-- Contadores possam gerenciar notas da sua empresa
-- Visualizadores tenham apenas acesso de leitura
+- ✅ Usuários só acessem dados da sua empresa
+- ✅ Admins tenham acesso a todas as empresas
+- ✅ Contadores possam gerenciar notas da sua empresa
+- ✅ Visualizadores tenham apenas acesso de leitura
+- ✅ Políticas aplicadas automaticamente em todas as queries
+
+### Como Fazer Login
+
+1. Acesse `http://localhost:3000/login`
+2. Use as credenciais de teste ou crie uma conta
+3. Após login, você será redirecionado para o dashboard
+4. Seu avatar com iniciais aparecerá no canto superior direito
+
+### Como Criar um Usuário Admin
+
+Execute no SQL Editor do Supabase:
+
+\`\`\`sql
+-- 1. Criar usuário no Auth
+-- Faça isso pelo Supabase Dashboard > Authentication > Add User
+
+-- 2. Atualizar role para admin
+UPDATE users_profile 
+SET role = 'admin' 
+WHERE email = 'seu-email@exemplo.com';
+\`\`\`
+
+### Documentação Completa
+
+Para documentação detalhada sobre autenticação:
+
+- 📖 **[Guia do Desenvolvedor](docs/AUTENTICACAO/AUTH-DEVELOPER-GUIDE.md)** - Como usar o sistema de auth
+- 🏗️ **[Documentação Técnica](docs/AUTENTICACAO/AUTH-TECHNICAL.md)** - Arquitetura e fluxos
+- 📋 **[Planejamento](docs/AUTENTICACAO/PLANEJAMENTO-AUTENTICACAO.md)** - Fases de implementação
+- 🔄 **[Fluxos](docs/AUTENTICACAO/FLUXOS.md)** - Diagramas de fluxo
 
 ## 📊 Parser de XML NFe
 

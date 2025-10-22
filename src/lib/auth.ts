@@ -1,4 +1,5 @@
 import { getSupabase } from "./supabaseClient";
+import { logger } from "./logger";
 import { UserProfile } from "@/types/models";
 
 export interface AuthUser {
@@ -9,7 +10,7 @@ export interface AuthUser {
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    console.log("🔍 Verificando usuário autenticado...");
+    logger.debug("🔍 Verificando usuário autenticado...");
     
     const supabase = getSupabase();
     const {
@@ -18,16 +19,18 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     } = await supabase.auth.getUser();
 
     if (authError) {
-      console.error("❌ Erro na autenticação:", authError);
+      // "Auth session missing!" é esperado quando usuário não está logado
+      // Não é um erro crítico, apenas indica que não há sessão ativa
+      logger.debug("ℹ️ Sessão não encontrada:", authError.message);
       return null;
     }
 
     if (!user) {
-      console.log("ℹ️ Nenhum usuário autenticado");
+      logger.debug("ℹ️ Nenhum usuário autenticado");
       return null;
     }
 
-    console.log("✅ Usuário encontrado:", user.email);
+    logger.debug("✅ Usuário autenticado");
 
     // Tentar buscar profile do usuário (opcional) com timeout
     try {
@@ -37,9 +40,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         .eq("id", user.id)
         .single();
 
-      // Adicionar timeout de 3 segundos para a busca do profile
+      // Adicionar timeout de 8 segundos para a busca do profile
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout ao buscar profile")), 3000)
+        setTimeout(() => reject(new Error("Timeout ao buscar profile")), 8000)
       );
 
       const { data: profile, error: profileError } = await Promise.race([
@@ -48,10 +51,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       ]) as any;
 
       if (profileError) {
-        console.warn("⚠️ Profile não encontrado (não é erro crítico):", profileError.message);
+        logger.warn("⚠️ Profile não encontrado (não é erro crítico):", profileError.message);
       }
 
-      console.log("✅ Profile encontrado:", profile?.email || "sem profile");
+      logger.debug("✅ Profile carregado com sucesso");
 
       return {
         id: user.id,
@@ -60,7 +63,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       };
     } catch (profileError) {
       // Se não conseguir buscar profile, retornar usuário sem profile
-      console.warn("⚠️ Erro ao buscar profile, continuando sem ele:", profileError);
+      logger.warn("⚠️ Erro ao buscar profile, continuando sem ele");
       return {
         id: user.id,
         email: user.email || "",
@@ -68,7 +71,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       };
     }
   } catch (error) {
-    console.error("❌ Erro crítico na autenticação:", error);
+    logger.error("❌ Erro crítico na autenticação:", error);
     return null;
   }
 }
@@ -127,7 +130,7 @@ export async function createUserProfile(
 
     return data;
   } catch (error) {
-    console.error("Erro ao criar profile do usuário:", error);
+    logger.error("Erro ao criar profile do usuário:", error);
     throw error;
   }
 }
@@ -160,7 +163,7 @@ export async function signUp(email: string, password: string, nome?: string) {
     try {
       await createUserProfile(data.user.id, email, "viewer");
     } catch (profileError) {
-      console.error("Erro ao criar profile após signup:", profileError);
+      logger.error("Erro ao criar profile após signup:", profileError);
       // Não falhar o signup por causa do profile
     }
   }

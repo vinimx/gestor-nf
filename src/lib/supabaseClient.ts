@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { logger } from "./logger";
 
 let _supabase: SupabaseClient | null = null;
 
@@ -8,14 +9,14 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 export function getSupabase(): SupabaseClient {
   if (_supabase) return _supabase;
 
-  console.log("🔧 Inicializando Supabase Client...");
-  console.log("📍 URL:", SUPABASE_URL ? `${SUPABASE_URL.substring(0, 30)}...` : "❌ NÃO CONFIGURADO");
-  console.log("🔑 ANON_KEY:", SUPABASE_ANON_KEY ? `${SUPABASE_ANON_KEY.substring(0, 20)}...` : "❌ NÃO CONFIGURADO");
+  logger.debug("🔧 Inicializando Supabase Client...");
+  logger.debug("📍 URL configurada:", SUPABASE_URL ? "✓" : "✗");
+  logger.debug("🔑 ANON_KEY configurada:", SUPABASE_ANON_KEY ? "✓" : "✗");
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.error("⚠️ Supabase não configurado! Verifique suas variáveis de ambiente.");
-    console.error("NEXT_PUBLIC_SUPABASE_URL:", SUPABASE_URL ? "✓ Configurado" : "✗ Faltando");
-    console.error("NEXT_PUBLIC_SUPABASE_ANON_KEY:", SUPABASE_ANON_KEY ? "✓ Configurado" : "✗ Faltando");
+    logger.error("⚠️ Supabase não configurado! Verifique suas variáveis de ambiente.");
+    logger.error("NEXT_PUBLIC_SUPABASE_URL:", SUPABASE_URL ? "✓ Configurado" : "✗ Faltando");
+    logger.error("NEXT_PUBLIC_SUPABASE_ANON_KEY:", SUPABASE_ANON_KEY ? "✓ Configurado" : "✗ Faltando");
     
     // Retornar um stub leve para evitar crashes durante SSR/dev quando variáveis não estiverem configuradas.
     _supabase = {
@@ -59,7 +60,7 @@ export function getSupabase(): SupabaseClient {
   }
 
   _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  console.log("✅ Supabase Client criado com sucesso!");
+  logger.debug("✅ Supabase Client criado com sucesso!");
   return _supabase;
 }
 
