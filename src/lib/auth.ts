@@ -32,38 +32,47 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
     logger.debug("✅ Usuário autenticado");
 
-    // Tentar buscar profile do usuário (opcional) com timeout
+    // Buscar profile do usuário SEM timeout para diagnóstico
     try {
-      const profilePromise = supabase
+      logger.debug("📋 Iniciando busca de profile...");
+      logger.debug("👤 User ID:", user.id);
+      logger.debug("📧 User Email:", user.email);
+      
+      const { data: profile, error: profileError } = await supabase
         .from("users_profile")
         .select("*")
         .eq("id", user.id)
         .single();
 
-      // Adicionar timeout de 8 segundos para a busca do profile
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout ao buscar profile")), 8000)
-      );
-
-      const { data: profile, error: profileError } = await Promise.race([
-        profilePromise,
-        timeoutPromise
-      ]) as any;
-
       if (profileError) {
-        logger.warn("⚠️ Profile não encontrado (não é erro crítico):", profileError.message);
+        logger.error("❌ ERRO DETALHADO AO BUSCAR PROFILE:");
+        logger.error("   - Código:", profileError.code);
+        logger.error("   - Mensagem:", profileError.message);
+        logger.error("   - Detalhes:", profileError.details);
+        logger.error("   - Hint:", profileError.hint);
+        
+        // Retornar usuário sem profile
+        return {
+          id: user.id,
+          email: user.email || "",
+          profile: null,
+        };
       }
 
-      logger.debug("✅ Profile carregado com sucesso");
+      logger.debug("✅ Profile carregado com sucesso:", profile);
 
       return {
         id: user.id,
         email: user.email || "",
         profile: profile || null,
       };
-    } catch (profileError) {
+    } catch (profileError: any) {
       // Se não conseguir buscar profile, retornar usuário sem profile
-      logger.warn("⚠️ Erro ao buscar profile, continuando sem ele");
+      logger.error("❌ EXCEÇÃO ao buscar profile:");
+      logger.error("   - Tipo:", typeof profileError);
+      logger.error("   - Mensagem:", profileError?.message);
+      logger.error("   - Stack:", profileError?.stack);
+      
       return {
         id: user.id,
         email: user.email || "",

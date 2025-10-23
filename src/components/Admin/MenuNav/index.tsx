@@ -6,7 +6,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Settings,
   Search,
@@ -17,7 +16,6 @@ import {
   LogOut,
   Building2,
   Users,
-  Shield,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,23 +39,8 @@ const sidebarItems = [
   { icon: Settings, label: "Configurações", href: "/configuracoes" },
 ];
 
-/**
- * Mapeia roles para nomes amigáveis em português
- */
-const roleNames: Record<string, string> = {
-  admin: "Administrador",
-  accountant: "Contador",
-  viewer: "Visualizador",
-};
-
-/**
- * Mapeia roles para cores do badge
- */
-const roleColors: Record<string, string> = {
-  admin: "bg-red-100 text-red-800 border-red-200",
-  accountant: "bg-blue-100 text-blue-800 border-blue-200",
-  viewer: "bg-green-100 text-green-800 border-green-200",
-};
+// Sistema simplificado: Todos os usuários têm acesso completo
+// Não há mais sistema de roles (admin, accountant, viewer)
 
 /**
  * Gera iniciais do nome do usuário
@@ -138,9 +121,6 @@ export default function MenuNav({ children }: MenuNavProps) {
   // Extrair informações do usuário
   const userName = user?.profile?.nome || user?.email?.split("@")[0] || "Usuário";
   const userEmail = user?.email || "";
-  const userRole = user?.profile?.role || "viewer";
-  const roleName = roleNames[userRole] || userRole;
-  const roleColorClass = roleColors[userRole] || roleColors.viewer;
 
   return (
     <div
@@ -244,30 +224,23 @@ export default function MenuNav({ children }: MenuNavProps) {
                   border: "1px solid var(--cor-borda)",
                 }}
               >
-                {/* User Info Header */}
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex items-start gap-3 p-2">
-                    <UserAvatar name={userName} email={userEmail} />
-                    <div className="flex flex-col space-y-1 flex-1 min-w-0">
-                      <p className="text-sm font-semibold leading-none text-gray-900 truncate">
-                        {userName}
-                      </p>
-                      <p className="text-xs leading-none text-gray-500 truncate">
-                        {userEmail}
-                      </p>
-                      <Badge
-                        className={cn(
-                          "w-fit text-xs font-medium mt-1",
-                          roleColorClass
-                        )}
-                        variant="outline"
-                      >
-                        <Shield className="h-3 w-3 mr-1" />
-                        {roleName}
-                      </Badge>
-                    </div>
-                  </div>
-                </DropdownMenuLabel>
+                       {/* User Info Header */}
+                       <DropdownMenuLabel className="font-normal">
+                         <div className="flex items-start gap-3 p-2">
+                           <UserAvatar name={userName} email={userEmail} />
+                           <div className="flex flex-col space-y-1 flex-1 min-w-0">
+                             <p className="text-sm font-semibold leading-none text-gray-900 truncate">
+                               {userName}
+                             </p>
+                             <p className="text-xs leading-none text-gray-500 truncate">
+                               {userEmail}
+                             </p>
+                             <p className="text-xs leading-none text-gray-400 mt-1">
+                               Escritório Ranicont
+                             </p>
+                           </div>
+                         </div>
+                       </DropdownMenuLabel>
 
                 <DropdownMenuSeparator className="my-1" />
 

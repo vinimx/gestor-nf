@@ -20,6 +20,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, nome?: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  refreshUser: () => Promise<void>; // Nova função para forçar atualização
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,12 +33,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     logger.debug("🚀 AuthProvider montado, iniciando verificação...");
     
-    // Timeout de segurança: se após 10 segundos ainda estiver carregando, força parar
+    // Timeout de segurança: 3 segundos
     const timeoutId = setTimeout(() => {
-      logger.warn("⚠️ Timeout de autenticação atingido! Forçando loading = false");
+      logger.warn("⚠️ Timeout de autenticação atingido após 3s");
       setLoading(false);
       setInitialCheckComplete(true);
-    }, 10000);
+    }, 3000);
 
     // Verificar sessão atual
     checkUser();
@@ -46,16 +47,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
+    } = supabase.auth.onAuthStateChange((event: any, session: any) => {
       logger.debug("🔄 Auth state changed:", event);
       
       // Eventos possíveis: SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
         if (session?.user) {
-          const authUser = await getCurrentUser();
-          setUser(authUser);
+          logger.debug("📝 Auth change: Atualizando usuário...");
+          // Atualizar usuário básico imediatamente
+          setUser({
+            id: session.user.id,
+            email: session.user.email || "",
+            profile: null,
+          });
+          
+          // Buscar profile em background (não bloqueia)
+          getCurrentUser()
+            .then((fullUser) => {
+              if (fullUser) {
+                logger.debug("✅ Auth change: Profile carregado");
+                setUser(fullUser);
+              }
+            })
+            .catch((err) => {
+              logger.warn("⚠️ Auth change: Erro ao buscar profile:", err);
+            });
         }
       } else if (event === "SIGNED_OUT") {
+        logger.debug("👋 Auth change: Usuário deslogado");
         setUser(null);
       }
       
@@ -64,57 +83,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timeoutId);
     });
 
+    // Polling: Verificar atualizações do profile a cada 10 segundos
+    const pollingInterval = setInterval(() => {
+      if (user?.id) {
+        logger.debug("🔄 Polling: Verificando atualizações do profile...");
+        getCurrentUser()
+          .then((updatedUser) => {
+            if (updatedUser && updatedUser.profile?.role !== user?.profile?.role) {
+              logger.debug("✨ Polling: Role atualizado!", {
+                antes: user?.profile?.role,
+                depois: updatedUser.profile?.role,
+              });
+              setUser(updatedUser);
+            }
+          })
+          .catch((err) => {
+            logger.debug("⚠️ Polling: Erro ao verificar atualizações (não crítico):", err);
+          });
+      }
+    }, 10000); // A cada 10 segundos (reduzido de 30)
+
     return () => {
       subscription.unsubscribe();
       clearTimeout(timeoutId);
+      clearInterval(pollingInterval);
     };
-  }, []);
+  }, [user?.id, user?.profile?.role]);
 
   const checkUser = async () => {
+    logger.debug("🔍 checkUser: INÍCIO");
+    
     try {
-      logger.debug("🔍 checkUser: Iniciando verificação...");
+      logger.debug("📞 checkUser: Criando Supabase client...");
+      const supabase = getSupabase();
+      logger.debug("✅ checkUser: Supabase client criado");
       
-      // Timeout de 8 segundos para buscar profile
-      const timeoutPromise = new Promise<AuthUser | null>((_, reject) => {
-        setTimeout(() => reject({ timeout: true }), 8000);
-      });
-
-      const userPromise = getCurrentUser();
-      const authUser = await Promise.race([userPromise, timeoutPromise]);
+      logger.debug("🔐 checkUser: Chamando getSession()...");
+      const sessionResult = await supabase.auth.getSession();
+      logger.debug("✅ checkUser: getSession() retornou", sessionResult);
       
-      logger.debug("✅ checkUser: Usuário verificado com sucesso");
-      setUser(authUser);
-    } catch (error: any) {
-      // Se foi timeout ou outro erro, tenta fallback silenciosamente
-      if (error?.timeout) {
-        logger.warn("⚠️ checkUser: Timeout ao buscar profile, tentando fallback...");
-      } else {
-        logger.warn("⚠️ checkUser: Erro ao verificar usuário, tentando fallback...");
-      }
+      const session = sessionResult?.data?.session;
       
-      // Em caso de timeout/erro, tenta pegar só os dados básicos do Supabase
-      try {
-        const supabase = getSupabase();
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          // Dados mínimos sem profile
-          setUser({
-            id: session.user.id,
-            email: session.user.email || "",
-            profile: null,
-          });
-          logger.debug("✅ checkUser: Usando dados básicos do Supabase (sem profile)");
-        } else {
-          setUser(null);
-          logger.debug("ℹ️ checkUser: Nenhuma sessão ativa");
-        }
-      } catch (fallbackError) {
-        logger.error("❌ checkUser: Erro no fallback:", fallbackError);
+      if (!session?.user) {
+        logger.debug("ℹ️ checkUser: Nenhuma sessão ativa");
         setUser(null);
+        setLoading(false);
+        setInitialCheckComplete(true);
+        return;
       }
-    } finally {
-      logger.debug("🏁 checkUser: Finalizando (loading = false)");
+      
+      logger.debug("✅ checkUser: Sessão encontrada para", session.user.email);
+      
+      // Setar usuário IMEDIATAMENTE
+      const basicUser = {
+        id: session.user.id,
+        email: session.user.email || "",
+        profile: null,
+      };
+      
+      logger.debug("💾 checkUser: Definindo usuário básico...");
+      setUser(basicUser);
+      logger.debug("✅ checkUser: Usuário definido!");
+      
+      logger.debug("🎯 checkUser: Liberando UI...");
+      setLoading(false);
+      setInitialCheckComplete(true);
+      logger.debug("✅ checkUser: UI LIBERADA!");
+      
+      // Buscar profile em background (não espera)
+      logger.debug("🔄 checkUser: Iniciando busca de profile em background...");
+      getCurrentUser()
+        .then((fullUser) => {
+          if (fullUser?.profile) {
+            logger.debug("✅ Background: Profile carregado", fullUser.profile);
+            setUser(fullUser);
+          } else {
+            logger.debug("ℹ️ Background: Sem profile, mantendo dados básicos");
+          }
+        })
+        .catch((err) => {
+          logger.warn("⚠️ Background: Erro ao buscar profile (não é crítico):", err);
+        });
+      
+      logger.debug("🏁 checkUser: FIM (sucesso)");
+      
+    } catch (error: any) {
+      logger.error("❌ checkUser: ERRO CRÍTICO:", error);
+      logger.error("❌ Stack:", error?.stack);
+      setUser(null);
       setLoading(false);
       setInitialCheckComplete(true);
     }
@@ -212,6 +268,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * Força atualização do perfil do usuário
+   * Útil quando o role ou dados foram alterados no banco de dados
+   */
+  const refreshUser = async () => {
+    logger.debug("🔄 Forçando atualização do perfil do usuário...");
+    
+    try {
+      const updatedUser = await getCurrentUser();
+      
+      if (updatedUser) {
+        logger.debug("✅ Perfil atualizado com sucesso", updatedUser);
+        setUser(updatedUser);
+      } else {
+        logger.warn("⚠️ Nenhum usuário encontrado ao atualizar");
+        setUser(null);
+      }
+    } catch (error) {
+      logger.error("❌ Erro ao atualizar perfil:", error);
+      throw error;
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -219,6 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp,
     signOut,
     resetPassword,
+    refreshUser,
   };
 
   // Mostrar loading screen apenas na verificação inicial
