@@ -6,6 +6,8 @@ import {
   useEffect,
   useState,
   ReactNode,
+  useRef,
+  useCallback,
 } from "react";
 import { User } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabaseClient";
@@ -29,9 +31,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [initialCheckComplete, setInitialCheckComplete] = useState(false);
+  
+  // Refs para evitar re-execuções desnecessárias
+  const authStateChangeRef = useRef<boolean>(false);
+  const profileLoadingRef = useRef<boolean>(false);
+
+  // Função otimizada para carregar profile
+  const loadUserProfile = useCallback(async (userId: string, userEmail: string) => {
+    if (profileLoadingRef.current) return;
+    
+    profileLoadingRef.current = true;
+    try {
+      const fullUser = await getCurrentUser();
+      if (fullUser && fullUser.id === userId) {
+        setUser(fullUser);
+      }
+    } catch (err) {
+      logger.debug("profile-load-error", "⚠️ Erro ao buscar profile:", err);
+    } finally {
+      profileLoadingRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    logger.debug("🚀 AuthProvider montado, iniciando verificação...");
+    // Evitar múltiplas inicializações
+    if (authStateChangeRef.current) return;
+    authStateChangeRef.current = true;
+    
+    logger.debugOnce("🚀 AuthProvider inicializado");
     
     // Timeout de segurança: 3 segundos
     const timeoutId = setTimeout(() => {
@@ -48,33 +75,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: any, session: any) => {
-      logger.debug("🔄 Auth state changed:", event);
+      // Evitar logs excessivos para eventos repetitivos
+      if (event !== "TOKEN_REFRESHED") {
+        logger.debug("auth-state-change", "🔄 Auth state changed:", event);
+      }
       
       // Eventos possíveis: SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
         if (session?.user) {
-          logger.debug("📝 Auth change: Atualizando usuário...");
           // Atualizar usuário básico imediatamente
-          setUser({
+          const basicUser = {
             id: session.user.id,
             email: session.user.email || "",
             profile: null,
-          });
+          };
           
-          // Buscar profile em background (não bloqueia)
-          getCurrentUser()
-            .then((fullUser) => {
-              if (fullUser) {
-                logger.debug("✅ Auth change: Profile carregado");
-                setUser(fullUser);
-              }
-            })
-            .catch((err) => {
-              logger.warn("⚠️ Auth change: Erro ao buscar profile:", err);
-            });
+          setUser(basicUser);
+          
+          // Buscar profile em background apenas se não estiver carregando
+          if (!profileLoadingRef.current) {
+            loadUserProfile(session.user.id, session.user.email || "");
+          }
         }
       } else if (event === "SIGNED_OUT") {
-        logger.debug("👋 Auth change: Usuário deslogado");
+        logger.debugOnce("👋 Usuário deslogado");
         setUser(null);
       }
       
@@ -83,98 +107,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timeoutId);
     });
 
-    // Polling: Verificar atualizações do profile a cada 10 segundos
-    const pollingInterval = setInterval(() => {
-      if (user?.id) {
-        logger.debug("🔄 Polling: Verificando atualizações do profile...");
-        getCurrentUser()
-          .then((updatedUser) => {
-            if (updatedUser && updatedUser.profile?.role !== user?.profile?.role) {
-              logger.debug("✨ Polling: Role atualizado!", {
-                antes: user?.profile?.role,
-                depois: updatedUser.profile?.role,
-              });
-              setUser(updatedUser);
-            }
-          })
-          .catch((err) => {
-            logger.debug("⚠️ Polling: Erro ao verificar atualizações (não crítico):", err);
-          });
-      }
-    }, 10000); // A cada 10 segundos (reduzido de 30)
-
     return () => {
       subscription.unsubscribe();
       clearTimeout(timeoutId);
+      authStateChangeRef.current = false;
+    };
+  }, [loadUserProfile]); // Dependência otimizada
+
+  // Polling otimizado para verificar atualizações do profile
+  useEffect(() => {
+    if (!user?.id || !user?.profile) return;
+
+    const pollingInterval = setInterval(() => {
+      // Evitar polling se já estiver carregando
+      if (profileLoadingRef.current) return;
+      
+      getCurrentUser()
+        .then((updatedUser) => {
+          if (updatedUser && updatedUser.profile?.role !== user?.profile?.role) {
+            logger.debug("role-update", "✨ Role atualizado:", {
+              antes: user?.profile?.role,
+              depois: updatedUser.profile?.role,
+            });
+            setUser(updatedUser);
+          }
+        })
+        .catch((err) => {
+          // Log apenas em caso de erro real, não para sessões expiradas
+          if (!err.message?.includes('session')) {
+            logger.debug("polling-error", "⚠️ Erro ao verificar atualizações:", err);
+          }
+        });
+    }, 60000); // A cada 60 segundos (reduzido de 30s)
+
+    return () => {
       clearInterval(pollingInterval);
     };
-  }, [user?.id, user?.profile?.role]);
+  }, [user?.id, user?.profile?.role]); // Dependências mais específicas
 
-  const checkUser = async () => {
-    logger.debug("🔍 checkUser: INÍCIO");
-    
+  const checkUser = useCallback(async () => {
     try {
-      logger.debug("📞 checkUser: Criando Supabase client...");
       const supabase = getSupabase();
-      logger.debug("✅ checkUser: Supabase client criado");
-      
-      logger.debug("🔐 checkUser: Chamando getSession()...");
       const sessionResult = await supabase.auth.getSession();
-      logger.debug("✅ checkUser: getSession() retornou", sessionResult);
-      
       const session = sessionResult?.data?.session;
       
       if (!session?.user) {
-        logger.debug("ℹ️ checkUser: Nenhuma sessão ativa");
         setUser(null);
         setLoading(false);
         setInitialCheckComplete(true);
         return;
       }
       
-      logger.debug("✅ checkUser: Sessão encontrada para", session.user.email);
-      
-      // Setar usuário IMEDIATAMENTE
+      // Setar usuário básico imediatamente
       const basicUser = {
         id: session.user.id,
         email: session.user.email || "",
         profile: null,
       };
       
-      logger.debug("💾 checkUser: Definindo usuário básico...");
       setUser(basicUser);
-      logger.debug("✅ checkUser: Usuário definido!");
-      
-      logger.debug("🎯 checkUser: Liberando UI...");
       setLoading(false);
       setInitialCheckComplete(true);
-      logger.debug("✅ checkUser: UI LIBERADA!");
       
-      // Buscar profile em background (não espera)
-      logger.debug("🔄 checkUser: Iniciando busca de profile em background...");
-      getCurrentUser()
-        .then((fullUser) => {
-          if (fullUser?.profile) {
-            logger.debug("✅ Background: Profile carregado", fullUser.profile);
-            setUser(fullUser);
-          } else {
-            logger.debug("ℹ️ Background: Sem profile, mantendo dados básicos");
-          }
-        })
-        .catch((err) => {
-          logger.warn("⚠️ Background: Erro ao buscar profile (não é crítico):", err);
-        });
-      
-      logger.debug("🏁 checkUser: FIM (sucesso)");
+      // Buscar profile em background
+      if (!profileLoadingRef.current) {
+        loadUserProfile(session.user.id, session.user.email || "");
+      }
       
     } catch (error: any) {
-      logger.error("❌ checkUser: ERRO CRÍTICO:", error);
-      logger.error("❌ Stack:", error?.stack);
+      logger.error("❌ Erro crítico na autenticação:", error);
       setUser(null);
       setLoading(false);
       setInitialCheckComplete(true);
     }
-  };
+  }, [loadUserProfile]);
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);
@@ -273,13 +279,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Útil quando o role ou dados foram alterados no banco de dados
    */
   const refreshUser = async () => {
-    logger.debug("🔄 Forçando atualização do perfil do usuário...");
+    logger.debugOnce("🔄 Forçando atualização do perfil do usuário...");
     
     try {
       const updatedUser = await getCurrentUser();
       
       if (updatedUser) {
-        logger.debug("✅ Perfil atualizado com sucesso", updatedUser);
+        logger.debugOnce("✅ Perfil atualizado com sucesso");
         setUser(updatedUser);
       } else {
         logger.warn("⚠️ Nenhum usuário encontrado ao atualizar");

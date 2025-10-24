@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { getSupabase } from "./supabaseClient";
 import { logger } from "./logger";
 import { UserProfile } from "@/types/models";
@@ -10,8 +11,6 @@ export interface AuthUser {
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    logger.debug("🔍 Verificando usuário autenticado...");
-    
     const supabase = getSupabase();
     const {
       data: { user },
@@ -21,23 +20,15 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     if (authError) {
       // "Auth session missing!" é esperado quando usuário não está logado
       // Não é um erro crítico, apenas indica que não há sessão ativa
-      logger.debug("ℹ️ Sessão não encontrada:", authError.message);
       return null;
     }
 
     if (!user) {
-      logger.debug("ℹ️ Nenhum usuário autenticado");
       return null;
     }
 
-    logger.debug("✅ Usuário autenticado");
-
-    // Buscar profile do usuário SEM timeout para diagnóstico
+    // Buscar profile do usuário
     try {
-      logger.debug("📋 Iniciando busca de profile...");
-      logger.debug("👤 User ID:", user.id);
-      logger.debug("📧 User Email:", user.email);
-      
       const { data: profile, error: profileError } = await supabase
         .from("users_profile")
         .select("*")
@@ -45,11 +36,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         .single();
 
       if (profileError) {
-        logger.error("❌ ERRO DETALHADO AO BUSCAR PROFILE:");
-        logger.error("   - Código:", profileError.code);
-        logger.error("   - Mensagem:", profileError.message);
-        logger.error("   - Detalhes:", profileError.details);
-        logger.error("   - Hint:", profileError.hint);
+        // Log apenas erros críticos, não "não encontrado"
+        if (profileError.code !== 'PGRST116') {
+          logger.error("❌ Erro ao buscar profile:", profileError.message);
+        }
         
         // Retornar usuário sem profile
         return {
@@ -59,19 +49,14 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         };
       }
 
-      logger.debug("✅ Profile carregado com sucesso:", profile);
-
       return {
         id: user.id,
         email: user.email || "",
         profile: profile || null,
       };
     } catch (profileError: any) {
-      // Se não conseguir buscar profile, retornar usuário sem profile
-      logger.error("❌ EXCEÇÃO ao buscar profile:");
-      logger.error("   - Tipo:", typeof profileError);
-      logger.error("   - Mensagem:", profileError?.message);
-      logger.error("   - Stack:", profileError?.stack);
+      // Log apenas erros críticos
+      logger.error("❌ Exceção ao buscar profile:", profileError?.message);
       
       return {
         id: user.id,
@@ -93,6 +78,54 @@ export async function requireAuth(): Promise<AuthUser> {
   }
 
   return user;
+}
+
+// Versão para API routes com NextRequest
+export async function requireAuthFromRequest(request: NextRequest): Promise<{ user: AuthUser; error: string | null }> {
+  try {
+    // Para API routes, precisamos usar o Supabase Admin para verificar a sessão
+    const { createSupabaseAdmin } = await import("./supabaseAdmin");
+    const supabaseAdmin = createSupabaseAdmin();
+    
+    // Extrair o token do header Authorization
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { user: null as any, error: "Token de autorização não encontrado" };
+    }
+    
+    const token = authHeader.substring(7);
+    
+    // Verificar o token com Supabase Admin
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (authError || !user) {
+      return { user: null as any, error: "Token inválido ou expirado" };
+    }
+
+    // Buscar profile do usuário
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("users_profile")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError) {
+      logger.error("Erro ao buscar profile:", profileError);
+      return { user: null as any, error: "Erro ao buscar perfil do usuário" };
+    }
+
+    return { 
+      user: {
+        id: user.id,
+        email: user.email || "",
+        profile: profile || null,
+      }, 
+      error: null 
+    };
+  } catch (error) {
+    logger.error("Erro na autenticação da API:", error);
+    return { user: null as any, error: "Erro de autenticação" };
+  }
 }
 
 export async function requireRole(allowedRoles: string[]): Promise<AuthUser> {

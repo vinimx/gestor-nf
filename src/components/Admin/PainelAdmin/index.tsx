@@ -437,7 +437,7 @@ export default function PainelAdmin() {
                     </div>
                   )}
                   <a
-                    href="#"
+                    href={`/empresa/${empresa.id}/dashboard`}
                     className="btn w-full flex items-center justify-center gap-2 font-semibold transition-colors"
                     style={{
                       background: "var(--cor-primaria)",
