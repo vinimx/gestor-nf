@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabase } from "@/lib/supabaseClient";
 import { Cliente, ClienteCreate, ClienteUpdate, ClienteQuery, ClienteResponse } from "@/types/cliente";
 
@@ -18,6 +18,7 @@ export function useClientes(empresaId: string, query: ClienteQuery) {
   });
 
   const supabase = getSupabase();
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchClientes = useCallback(async () => {
     if (!empresaId) return;
@@ -184,9 +185,30 @@ export function useClientes(empresaId: string, query: ClienteQuery) {
     }
   };
 
-  useEffect(() => {
-    fetchClientes();
-  }, [fetchClientes]);
+  // Desabilitar completamente o auto-refresh
+  // useEffect(() => {
+  //   // Desabilitar auto-refresh em desenvolvimento
+  //   if (process.env.NODE_ENV === 'development') {
+  //     return;
+  //   }
+
+  //   // Limpar timeout anterior
+  //   if (debounceRef.current) {
+  //     clearTimeout(debounceRef.current);
+  //   }
+
+  //   // Debounce de 2000ms para reduzir ainda mais as requisições
+  //   debounceRef.current = setTimeout(() => {
+  //     fetchClientes();
+  //   }, 2000);
+
+  //   // Cleanup
+  //   return () => {
+  //     if (debounceRef.current) {
+  //       clearTimeout(debounceRef.current);
+  //     }
+  //   };
+  // }, [fetchClientes]);
 
   return {
     clientes,

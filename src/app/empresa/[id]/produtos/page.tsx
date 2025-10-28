@@ -1,24 +1,32 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ListaProdutos } from "@/components/Empresa/Produtos/ListaProdutos";
 import { ModalProduto } from "@/components/Empresa/Produtos/ModalProduto";
-import { Produto, ProdutoCreate, ProdutoUpdate, ProdutoQuery } from "@/types/produto";
+import { ModalCategoria } from "@/components/Empresa/Produtos/ModalCategoria";
+import { Produto, ProdutoCreate, ProdutoUpdate, ProdutoQuery, CategoriaProduto, CategoriaProdutoCreate, CategoriaProdutoUpdate } from "@/types/produto";
 import { useToast } from "@/hooks/useToast";
+import { getSupabase } from "@/lib/supabaseClient";
+import { Button } from "@/components/ui/button";
+import { Tag, Settings, Package } from "lucide-react";
 
 export default function ProdutosPage() {
   const params = useParams();
   const empresaId = params.id as string;
   const { toast } = useToast();
   
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalProdutoOpen, setModalProdutoOpen] = useState(false);
+  const [modalCategoriaOpen, setModalCategoriaOpen] = useState(false);
   const [produtoParaEditar, setProdutoParaEditar] = useState<Produto | null>(null);
+  const [categoriaParaEditar, setCategoriaParaEditar] = useState<CategoriaProduto | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const isPageVisible = useRef(true);
   
   const [query, setQuery] = useState<ProdutoQuery>({
     search: "",
     tipo: undefined,
+    categoria_id: undefined,
     ativo: undefined,
     limit: 20,
     offset: 0,
@@ -28,30 +36,58 @@ export default function ProdutosPage() {
 
   const handleNovoProduto = () => {
     setProdutoParaEditar(null);
-    setModalOpen(true);
+    setModalProdutoOpen(true);
   };
 
   const handleEditarProduto = (produto: Produto) => {
     setProdutoParaEditar(produto);
-    setModalOpen(true);
+    setModalProdutoOpen(true);
   };
 
-  const handleCloseModal = () => {
-    setModalOpen(false);
+  const handleCloseModalProduto = () => {
+    setModalProdutoOpen(false);
     setProdutoParaEditar(null);
+    // Força refresh da lista após criar/editar
+    setRefreshKey((prev) => prev + 1);
+  };
+
+  const handleNovaCategoria = () => {
+    setCategoriaParaEditar(null);
+    setModalCategoriaOpen(true);
+  };
+
+  const handleEditarCategoria = (categoria: CategoriaProduto) => {
+    setCategoriaParaEditar(categoria);
+    setModalCategoriaOpen(true);
+  };
+
+  const handleCloseModalCategoria = () => {
+    setModalCategoriaOpen(false);
+    setCategoriaParaEditar(null);
     // Força refresh da lista após criar/editar
     setRefreshKey((prev) => prev + 1);
   };
 
   const handleSubmitProduto = async (data: Partial<Produto>) => {
     try {
+      // Obter token de autenticação
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      };
+
       if (produtoParaEditar) {
         // Atualizar produto existente
         const response = await fetch(`/api/empresa/${empresaId}/produtos/${produtoParaEditar.id}`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify(data),
         });
 
@@ -69,9 +105,7 @@ export default function ProdutosPage() {
         // Criar novo produto
         const response = await fetch(`/api/empresa/${empresaId}/produtos`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify({
             ...data,
             empresa_id: empresaId,
@@ -90,7 +124,7 @@ export default function ProdutosPage() {
         });
       }
 
-      handleCloseModal();
+      handleCloseModalProduto();
     } catch (error) {
       console.error('Erro ao salvar produto:', error);
       toast({
@@ -101,10 +135,89 @@ export default function ProdutosPage() {
     }
   };
 
+  const handleSubmitCategoria = async (data: Partial<CategoriaProduto>) => {
+    try {
+      // Obter token de autenticação
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      };
+
+      if (categoriaParaEditar) {
+        // Atualizar categoria existente
+        const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos/${categoriaParaEditar.id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Erro ao atualizar categoria');
+        }
+
+        toast({
+          title: "Categoria atualizada!",
+          description: `${data.nome} foi atualizada com sucesso.`,
+          variant: "default",
+        });
+      } else {
+        // Criar nova categoria
+        const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...data,
+            empresa_id: empresaId,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Erro ao criar categoria');
+        }
+
+        toast({
+          title: "Categoria criada!",
+          description: `${data.nome} foi cadastrada com sucesso.`,
+          variant: "default",
+        });
+      }
+
+      handleCloseModalCategoria();
+    } catch (error) {
+      console.error('Erro ao salvar categoria:', error);
+      toast({
+        title: "Erro ao salvar categoria",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleDeleteProduto = async (produto: Produto) => {
     try {
+      // Obter token de autenticação
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
       const response = await fetch(`/api/empresa/${empresaId}/produtos/${produto.id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
       });
 
       if (!response.ok) {
@@ -158,12 +271,68 @@ export default function ProdutosPage() {
     }));
   };
 
+  const handleCategoriaChange = (categoria: "all" | string) => {
+    setQuery(prev => ({
+      ...prev,
+      categoria_id: categoria === "all" ? undefined : categoria,
+      offset: 0,
+    }));
+  };
+
+  // Controlar visibilidade da página para evitar refresh desnecessários
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isPageVisible.current = !document.hidden;
+    };
+
+    const handleFocus = () => {
+      isPageVisible.current = true;
+    };
+
+    const handleBlur = () => {
+      isPageVisible.current = false;
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Produtos</h1>
-        <p className="text-gray-600">Gerencie os produtos e serviços da empresa</p>
+    <div className="bg-[var(--background-color)] p-3">
+      {/* Header com gradiente */}
+      <div className="mb-3">
+        <div className="bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--cor-secundaria)] rounded-2xl p-3 text-white shadow-[var(--sombra-destaque)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold mb-1">Produtos</h1>
+              <p className="text-white/90">Gerencie os produtos e serviços da empresa</p>
+            </div>
+            <div className="hidden lg:flex items-center space-x-4">
+              <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                <Package className="h-6 w-6" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Botões de Ação */}
+      <div className="mb-4 flex gap-2">
+        <Button
+          onClick={handleNovaCategoria}
+          variant="outline"
+          className="flex items-center gap-2 border-[var(--cor-primaria)]/20 text-[var(--cor-primaria)] hover:bg-[var(--cor-primaria)]/10 hover:border-[var(--cor-primaria)]/40"
+        >
+          <Tag className="h-4 w-4" />
+          Gerenciar Categorias
+        </Button>
       </div>
 
       {/* Lista de Produtos */}
@@ -179,15 +348,25 @@ export default function ProdutosPage() {
         onPageChange={handlePageChange}
         onStatusChange={handleStatusChange}
         onTipoChange={handleTipoChange}
+        onCategoriaChange={handleCategoriaChange}
       />
 
       {/* Modal de Produto */}
       <ModalProduto
-        open={modalOpen}
-        onOpenChange={setModalOpen}
+        open={modalProdutoOpen}
+        onOpenChange={setModalProdutoOpen}
         produto={produtoParaEditar}
-        onSuccess={handleCloseModal}
+        onSuccess={handleCloseModalProduto}
         onSubmit={handleSubmitProduto}
+      />
+
+      {/* Modal de Categoria */}
+      <ModalCategoria
+        open={modalCategoriaOpen}
+        onOpenChange={setModalCategoriaOpen}
+        categoria={categoriaParaEditar}
+        onSuccess={handleCloseModalCategoria}
+        onSubmit={handleSubmitCategoria}
       />
     </div>
   );

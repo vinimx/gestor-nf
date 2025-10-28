@@ -47,25 +47,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(fullUser);
       }
     } catch (err) {
-      logger.debug("profile-load-error", "⚠️ Erro ao buscar profile:", err);
+      // Reduzir logs de debug para evitar spam
     } finally {
       profileLoadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
-    // Evitar múltiplas inicializações
-    if (authStateChangeRef.current) return;
-    authStateChangeRef.current = true;
-    
-    logger.debugOnce("🚀 AuthProvider inicializado");
-    
-    // Timeout de segurança: 3 segundos
-    const timeoutId = setTimeout(() => {
-      logger.warn("⚠️ Timeout de autenticação atingido após 3s");
-      setLoading(false);
-      setInitialCheckComplete(true);
-    }, 3000);
+      // Evitar múltiplas inicializações
+      if (authStateChangeRef.current) return;
+      authStateChangeRef.current = true;
+      
+      // Timeout de segurança: 3 segundos
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setInitialCheckComplete(true);
+      }, 3000);
 
     // Verificar sessão atual
     checkUser();
@@ -75,10 +72,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event: any, session: any) => {
-      // Evitar logs excessivos para eventos repetitivos
-      if (event !== "TOKEN_REFRESHED") {
-        logger.debug("auth-state-change", "🔄 Auth state changed:", event);
-      }
       
       // Eventos possíveis: SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
@@ -98,7 +91,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } else if (event === "SIGNED_OUT") {
-        logger.debugOnce("👋 Usuário deslogado");
         setUser(null);
       }
       
@@ -114,36 +106,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadUserProfile]); // Dependência otimizada
 
-  // Polling otimizado para verificar atualizações do profile
-  useEffect(() => {
-    if (!user?.id || !user?.profile) return;
+  // Desabilitar completamente o polling para evitar Fast Refresh
+  // useEffect(() => {
+  //   if (!user?.id || !user?.profile) return;
+    
+  //   // Apenas em produção, desabilitar completamente em desenvolvimento
+  //   if (process.env.NODE_ENV === 'development') return;
 
-    const pollingInterval = setInterval(() => {
-      // Evitar polling se já estiver carregando
-      if (profileLoadingRef.current) return;
+  //   const pollingInterval = setInterval(() => {
+  //     // Evitar polling se já estiver carregando
+  //     if (profileLoadingRef.current) return;
       
-      getCurrentUser()
-        .then((updatedUser) => {
-          if (updatedUser && updatedUser.profile?.role !== user?.profile?.role) {
-            logger.debug("role-update", "✨ Role atualizado:", {
-              antes: user?.profile?.role,
-              depois: updatedUser.profile?.role,
-            });
-            setUser(updatedUser);
-          }
-        })
-        .catch((err) => {
-          // Log apenas em caso de erro real, não para sessões expiradas
-          if (!err.message?.includes('session')) {
-            logger.debug("polling-error", "⚠️ Erro ao verificar atualizações:", err);
-          }
-        });
-    }, 60000); // A cada 60 segundos (reduzido de 30s)
+  //     // Evitar polling se a página não estiver visível
+  //     if (document.hidden) return;
+      
+  //     getCurrentUser()
+  //       .then((updatedUser) => {
+  //         if (updatedUser && updatedUser.profile?.role !== user?.profile?.role) {
+  //           setUser(updatedUser);
+  //         }
+  //       })
+  //       .catch((err) => {
+  //       });
+  //   }, 300000); // 5 minutos em produção
 
-    return () => {
-      clearInterval(pollingInterval);
-    };
-  }, [user?.id, user?.profile?.role]); // Dependências mais específicas
+  //   return () => {
+  //     clearInterval(pollingInterval);
+  //   };
+  // }, [user?.id, user?.profile?.role]); // Dependências mais específicas
 
   const checkUser = useCallback(async () => {
     try {
@@ -279,13 +269,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Útil quando o role ou dados foram alterados no banco de dados
    */
   const refreshUser = async () => {
-    logger.debugOnce("🔄 Forçando atualização do perfil do usuário...");
     
     try {
       const updatedUser = await getCurrentUser();
       
       if (updatedUser) {
-        logger.debugOnce("✅ Perfil atualizado com sucesso");
         setUser(updatedUser);
       } else {
         logger.warn("⚠️ Nenhum usuário encontrado ao atualizar");

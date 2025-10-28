@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getSupabase } from "@/lib/supabaseClient";
-import { Produto, ProdutoCreate, ProdutoUpdate, ProdutoQuery, ProdutoResponse } from "@/types/produto";
+import { Produto, ProdutoCreate, ProdutoUpdate, ProdutoQuery, CategoriaProduto, CategoriaProdutoCreate, CategoriaProdutoUpdate } from "@/types/produto";
+import { useToast } from "@/hooks/useToast";
 
 export function useProdutos(empresaId: string, query: ProdutoQuery) {
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -17,7 +17,7 @@ export function useProdutos(empresaId: string, query: ProdutoQuery) {
     currentPage: 1,
   });
 
-  const supabase = getSupabase();
+  const { toast } = useToast();
 
   const fetchProdutos = useCallback(async () => {
     if (!empresaId) return;
@@ -26,163 +26,163 @@ export function useProdutos(empresaId: string, query: ProdutoQuery) {
       setLoading(true);
       setError(null);
 
-      let supabaseQuery = supabase
-        .from('produtos')
-        .select('*', { count: 'exact' })
-        .eq('empresa_id', empresaId);
-
-      // Aplicar filtros
-      if (query.search) {
-        supabaseQuery = supabaseQuery.or(
-          `nome.ilike.%${query.search}%,codigo.ilike.%${query.search}%,descricao.ilike.%${query.search}%`
-        );
-      }
-
-      if (query.tipo) {
-        supabaseQuery = supabaseQuery.eq('tipo', query.tipo);
-      }
-
-      if (query.ativo !== undefined) {
-        supabaseQuery = supabaseQuery.eq('ativo', query.ativo);
-      }
-
-      // Aplicar ordenação
-      supabaseQuery = supabaseQuery.order(query.sort, {
-        ascending: query.order === 'asc',
-      });
-
-      // Aplicar paginação
-      supabaseQuery = supabaseQuery.range(
-        query.offset,
-        query.offset + query.limit - 1
-      );
-
-      const { data, error: fetchError, count } = await supabaseQuery;
-
-      if (fetchError) {
-        throw new Error(fetchError.message);
-      }
-
-      setProdutos(data || []);
+      // Obter token de autenticação
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
       
-      const total = count || 0;
-      const totalPages = Math.ceil(total / query.limit);
-      const currentPage = Math.floor(query.offset / query.limit) + 1;
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
 
-      setPagination({
-        total,
-        limit: query.limit,
-        offset: query.offset,
-        hasMore: query.offset + query.limit < total,
-        totalPages,
-        currentPage,
+      const searchParams = new URLSearchParams();
+      if (query.search) searchParams.set("search", query.search);
+      if (query.tipo) searchParams.set("tipo", query.tipo);
+      if (query.categoria_id) searchParams.set("categoria_id", query.categoria_id);
+      if (query.ativo !== undefined) searchParams.set("ativo", query.ativo.toString());
+      searchParams.set("limit", query.limit.toString());
+      searchParams.set("offset", query.offset.toString());
+      searchParams.set("sort", query.sort);
+      searchParams.set("order", query.order);
+
+      const response = await fetch(`/api/empresa/${empresaId}/produtos?${searchParams}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
       });
-    } catch (err) {
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao carregar produtos');
+      }
+
+      const data = await response.json();
+      setProdutos(data.data);
+      setPagination(data.pagination);
+    } catch (err: any) {
       console.error('Erro ao buscar produtos:', err);
-      setError(err instanceof Error ? err.message : 'Erro ao carregar produtos');
+      setError(err.message || 'Erro ao carregar produtos');
+      toast({
+        title: "Erro ao carregar produtos",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
-  }, [empresaId, query, supabase]);
+  }, [empresaId, query, toast]);
 
-  const createProduto = async (produtoData: ProdutoCreate): Promise<Produto> => {
+  const createProduto = useCallback(async (data: ProdutoCreate) => {
     try {
-      const { data, error } = await supabase
-        .from('produtos')
-        .insert([produtoData])
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
       }
 
-      // Atualizar lista local
-      setProdutos(prev => [data, ...prev]);
-      setPagination(prev => ({
-        ...prev,
-        total: prev.total + 1,
-      }));
+      const response = await fetch(`/api/empresa/${empresaId}/produtos`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
 
-      return data;
-    } catch (err) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao criar produto');
+      }
+
+      const produto = await response.json();
+      await fetchProdutos(); // Refresh da lista
+      return produto;
+    } catch (err: any) {
       console.error('Erro ao criar produto:', err);
+      toast({
+        title: "Erro ao criar produto",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
       throw err;
     }
-  };
+  }, [empresaId, fetchProdutos, toast]);
 
-  const updateProduto = async (id: string, produtoData: ProdutoUpdate): Promise<Produto> => {
+  const updateProduto = useCallback(async (id: string, data: ProdutoUpdate) => {
     try {
-      const { data, error } = await supabase
-        .from('produtos')
-        .update(produtoData)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
       }
 
-      // Atualizar lista local
-      setProdutos(prev => 
-        prev.map(produto => 
-          produto.id === id ? data : produto
-        )
-      );
+      const response = await fetch(`/api/empresa/${empresaId}/produtos/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
 
-      return data;
-    } catch (err) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao atualizar produto');
+      }
+
+      const produto = await response.json();
+      await fetchProdutos(); // Refresh da lista
+      return produto;
+    } catch (err: any) {
       console.error('Erro ao atualizar produto:', err);
+      toast({
+        title: "Erro ao atualizar produto",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
       throw err;
     }
-  };
+  }, [empresaId, fetchProdutos, toast]);
 
-  const deleteProduto = async (id: string): Promise<void> => {
+  const deleteProduto = useCallback(async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('produtos')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        throw new Error(error.message);
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
       }
 
-      // Atualizar lista local
-      setProdutos(prev => prev.filter(produto => produto.id !== id));
-      setPagination(prev => ({
-        ...prev,
-        total: prev.total - 1,
-      }));
-    } catch (err) {
+      const response = await fetch(`/api/empresa/${empresaId}/produtos/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao excluir produto');
+      }
+
+      await fetchProdutos(); // Refresh da lista
+    } catch (err: any) {
       console.error('Erro ao excluir produto:', err);
+      toast({
+        title: "Erro ao excluir produto",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
       throw err;
     }
-  };
-
-  const getProduto = async (id: string): Promise<Produto | null> => {
-    try {
-      const { data, error } = await supabase
-        .from('produtos')
-        .select('*')
-        .eq('id', id)
-        .eq('empresa_id', empresaId)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return null; // Produto não encontrado
-        }
-        throw new Error(error.message);
-      }
-
-      return data;
-    } catch (err) {
-      console.error('Erro ao buscar produto:', err);
-      throw err;
-    }
-  };
+  }, [empresaId, fetchProdutos, toast]);
 
   useEffect(() => {
     fetchProdutos();
@@ -196,7 +196,181 @@ export function useProdutos(empresaId: string, query: ProdutoQuery) {
     createProduto,
     updateProduto,
     deleteProduto,
-    getProduto,
-    fetchProdutos,
+    refetch: fetchProdutos,
+  };
+}
+
+export function useCategoriasProdutos(empresaId: string) {
+  const [categorias, setCategorias] = useState<CategoriaProduto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const { toast } = useToast();
+
+  const fetchCategorias = useCallback(async () => {
+    if (!empresaId) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos?ativo=true&order=nome`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao carregar categorias');
+      }
+
+      const data = await response.json();
+      setCategorias(data.data || data);
+    } catch (err: any) {
+      console.error('Erro ao buscar categorias:', err);
+      setError(err.message || 'Erro ao carregar categorias');
+      toast({
+        title: "Erro ao carregar categorias",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [empresaId, toast]);
+
+  const createCategoria = useCallback(async (data: CategoriaProdutoCreate) => {
+    try {
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao criar categoria');
+      }
+
+      const categoria = await response.json();
+      await fetchCategorias(); // Refresh da lista
+      return categoria;
+    } catch (err: any) {
+      console.error('Erro ao criar categoria:', err);
+      toast({
+        title: "Erro ao criar categoria",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
+      throw err;
+    }
+  }, [empresaId, fetchCategorias, toast]);
+
+  const updateCategoria = useCallback(async (id: string, data: CategoriaProdutoUpdate) => {
+    try {
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao atualizar categoria');
+      }
+
+      const categoria = await response.json();
+      await fetchCategorias(); // Refresh da lista
+      return categoria;
+    } catch (err: any) {
+      console.error('Erro ao atualizar categoria:', err);
+      toast({
+        title: "Erro ao atualizar categoria",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
+      throw err;
+    }
+  }, [empresaId, fetchCategorias, toast]);
+
+  const deleteCategoria = useCallback(async (id: string) => {
+    try {
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      const response = await fetch(`/api/empresa/${empresaId}/categorias-produtos/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao excluir categoria');
+      }
+
+      await fetchCategorias(); // Refresh da lista
+    } catch (err: any) {
+      console.error('Erro ao excluir categoria:', err);
+      toast({
+        title: "Erro ao excluir categoria",
+        description: err.message || "Erro desconhecido",
+        variant: "destructive",
+      });
+      throw err;
+    }
+  }, [empresaId, fetchCategorias, toast]);
+
+  useEffect(() => {
+    fetchCategorias();
+  }, [fetchCategorias]);
+
+  return {
+    categorias,
+    loading,
+    error,
+    createCategoria,
+    updateCategoria,
+    deleteCategoria,
+    refetch: fetchCategorias,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ListaClientes } from "@/components/Empresa/Clientes/ListaClientes";
 import { ModalCliente } from "@/components/Empresa/Clientes/ModalCliente";
 import { Cliente, ClienteCreate, ClienteUpdate, ClienteQuery } from "@/types/cliente";
@@ -16,6 +16,7 @@ export default function ClientesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [clienteParaEditar, setClienteParaEditar] = useState<Cliente | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const isPageVisible = useRef(true);
   
   const [query, setQuery] = useState<ClienteQuery>({
     search: "",
@@ -179,6 +180,31 @@ export default function ClientesPage() {
       offset: 0,
     }));
   };
+
+  // Controlar visibilidade da página para evitar refresh desnecessários
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isPageVisible.current = !document.hidden;
+    };
+
+    const handleFocus = () => {
+      isPageVisible.current = true;
+    };
+
+    const handleBlur = () => {
+      isPageVisible.current = false;
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
 
   return (
     <div className="bg-[var(--background-color)] p-3">

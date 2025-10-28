@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useProdutos, useCategoriasProdutos } from "@/hooks/useProdutos";
+import { Produto, ProdutoQuery, CategoriaProduto, CategoriaProdutoCreate, CategoriaProdutoUpdate } from "@/types/produto";
+import { ModalCategoria } from "./ModalCategoria";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -12,7 +14,6 @@ import { ErrorState } from "@/components/ui/error-state";
 import { 
   Plus, 
   Search, 
-  Filter, 
   Edit, 
   Trash2, 
   Package, 
@@ -21,8 +22,10 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Tag,
+  Settings
 } from "lucide-react";
-import { Produto, ProdutoQuery } from "@/types/produto";
+import { formatCurrency } from "@/lib/utils";
 
 interface ListaProdutosProps {
   empresaId: string;
@@ -35,6 +38,7 @@ interface ListaProdutosProps {
   onPageChange: (offset: number) => void;
   onStatusChange: (status: "all" | "active" | "inactive") => void;
   onTipoChange: (tipo: "all" | "PRODUTO" | "SERVICO") => void;
+  onCategoriaChange: (categoria: "all" | string) => void;
 }
 
 export function ListaProdutos({
@@ -48,6 +52,7 @@ export function ListaProdutos({
   onPageChange,
   onStatusChange,
   onTipoChange,
+  onCategoriaChange,
 }: ListaProdutosProps) {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +66,8 @@ export function ListaProdutos({
     currentPage: 1,
   });
 
+  const { categorias, loading: categoriasLoading } = useCategoriasProdutos(empresaId);
+
   const fetchProdutos = async () => {
     if (!empresaId) return;
 
@@ -68,16 +75,31 @@ export function ListaProdutos({
       setLoading(true);
       setError(null);
 
+      // Obter token de autenticação
+      const { getSupabase } = await import("@/lib/supabaseClient");
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
       const searchParams = new URLSearchParams();
       if (query.search) searchParams.set("search", query.search);
       if (query.tipo) searchParams.set("tipo", query.tipo);
+      if (query.categoria_id) searchParams.set("categoria_id", query.categoria_id);
       if (query.ativo !== undefined) searchParams.set("ativo", query.ativo.toString());
       searchParams.set("limit", query.limit.toString());
       searchParams.set("offset", query.offset.toString());
       searchParams.set("sort", query.sort);
       searchParams.set("order", query.order);
 
-      const response = await fetch(`/api/empresa/${empresaId}/produtos?${searchParams}`);
+      const response = await fetch(`/api/empresa/${empresaId}/produtos?${searchParams}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -125,11 +147,10 @@ export function ListaProdutos({
     return tipo === 'PRODUTO' ? 'Produto' : 'Serviço';
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
+  const getCategoriaNome = (categoriaId?: string) => {
+    if (!categoriaId) return 'Sem categoria';
+    const categoria = categorias.find(cat => cat.id === categoriaId);
+    return categoria ? categoria.nome : 'Categoria não encontrada';
   };
 
   if (loading) {
@@ -151,17 +172,17 @@ export function ListaProdutos({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header com botão Novo Produto */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-[var(--foreground)]">
             Lista de Produtos ({pagination.total})
           </h2>
         </div>
         <Button
           onClick={onNovoProduto}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]"
           style={{
             background: "var(--cor-primaria)",
             color: "#fff",
@@ -173,8 +194,8 @@ export function ListaProdutos({
       </div>
 
       {/* Filtros */}
-      <Card className="p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <Card className="p-4 border-2 border-[var(--cor-primaria)]/20 shadow-[var(--sombra-destaque)]">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {/* Busca */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -187,40 +208,59 @@ export function ListaProdutos({
           </div>
 
           {/* Tipo */}
-          <Select
+          <select
             value={query.tipo || "all"}
-            onValueChange={onTipoChange}
+            onChange={(e) => onTipoChange(e.target.value as "all" | "PRODUTO" | "SERVICO")}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="all">Todos os tipos</option>
             <option value="PRODUTO">Produto</option>
             <option value="SERVICO">Serviço</option>
-          </Select>
+          </select>
+
+          {/* Categoria */}
+          <select
+            value={query.categoria_id || "all"}
+            onChange={(e) => onCategoriaChange(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="all">Todas as categorias</option>
+            {categoriasLoading ? (
+              <option value="loading" disabled>Carregando...</option>
+            ) : (
+              categorias.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.nome}</option>
+              ))
+            )}
+          </select>
 
           {/* Status */}
-          <Select
+          <select
             value={query.ativo === undefined ? "all" : query.ativo ? "active" : "inactive"}
-            onValueChange={onStatusChange}
+            onChange={(e) => onStatusChange(e.target.value as "all" | "active" | "inactive")}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="all">Todos os status</option>
             <option value="active">Ativos</option>
             <option value="inactive">Inativos</option>
-          </Select>
+          </select>
 
           {/* Ordenação */}
-          <Select
+          <select
             value={`${query.sort}-${query.order}`}
-            onValueChange={(value) => {
-              const [sort, order] = value.split('-');
+            onChange={(e) => {
+              const [sort, order] = e.target.value.split('-');
               onSortChange(sort, order as "asc" | "desc");
             }}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="nome-asc">Nome A-Z</option>
             <option value="nome-desc">Nome Z-A</option>
-            <option value="valor_unitario-desc">Maior Preço</option>
-            <option value="valor_unitario-asc">Menor Preço</option>
+            <option value="preco_venda-desc">Maior preço</option>
+            <option value="preco_venda-asc">Menor preço</option>
             <option value="created_at-desc">Mais recentes</option>
             <option value="created_at-asc">Mais antigos</option>
-          </Select>
+          </select>
         </div>
       </Card>
 
@@ -230,14 +270,16 @@ export function ListaProdutos({
           title="Nenhum produto encontrado"
           description="Comece criando seu primeiro produto."
           action={{
+            icon: Plus,
+            className: "bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]",
             label: "Novo Produto",
             onClick: onNovoProduto,
           }}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {produtos.map((produto) => (
-            <Card key={produto.id} className="p-6 hover:shadow-md transition-shadow">
+            <Card key={produto.id} className="p-4 border-2 border-[var(--cor-primaria)]/10 hover:border-[var(--cor-primaria)]/30 hover:shadow-[var(--sombra-destaque)] transition-all duration-300">
               <div className="space-y-4">
                 {/* Header do Card */}
                 <div className="flex items-start justify-between">
@@ -248,7 +290,7 @@ export function ListaProdutos({
                         {produto.nome}
                       </h3>
                       <p className="text-sm text-gray-500">
-                        {getTipoLabel(produto.tipo)} • {produto.codigo}
+                        {getTipoLabel(produto.tipo)}
                       </p>
                     </div>
                   </div>
@@ -258,30 +300,31 @@ export function ListaProdutos({
                 {/* Informações do Produto */}
                 <div className="space-y-2">
                   <div className="text-sm">
+                    <span className="font-medium text-gray-700">Código:</span>
+                    <span className="ml-2 text-gray-600">{produto.codigo}</span>
+                  </div>
+                  
+                  <div className="text-sm">
                     <span className="font-medium text-gray-700">Preço:</span>
-                    <span className="ml-2 text-gray-600 font-semibold">
-                      {formatCurrency(produto.valor_unitario)}
+                    <span className="ml-2 font-semibold text-green-600">
+                      {formatCurrency(produto.preco_venda)}
                     </span>
                   </div>
                   
                   <div className="text-sm">
-                    <span className="font-medium text-gray-700">Unidade:</span>
-                    <span className="ml-2 text-gray-600">{produto.unidade_medida}</span>
+                    <span className="font-medium text-gray-700">Categoria:</span>
+                    <span className="ml-2 text-gray-600">{getCategoriaNome(produto.categoria_id)}</span>
                   </div>
                   
-                  {produto.codigo_ncm && (
-                    <div className="text-sm">
-                      <span className="font-medium text-gray-700">NCM:</span>
-                      <span className="ml-2 text-gray-600">{produto.codigo_ncm}</span>
-                    </div>
-                  )}
+                  <div className="text-sm">
+                    <span className="font-medium text-gray-700">NCM:</span>
+                    <span className="ml-2 text-gray-600">{produto.ncm || 'N/A'}</span>
+                  </div>
                   
-                  {produto.codigo_cfop && (
-                    <div className="text-sm">
-                      <span className="font-medium text-gray-700">CFOP:</span>
-                      <span className="ml-2 text-gray-600">{produto.codigo_cfop}</span>
-                    </div>
-                  )}
+                  <div className="text-sm">
+                    <span className="font-medium text-gray-700">CFOP Saída:</span>
+                    <span className="ml-2 text-gray-600">{produto.cfop_saida}</span>
+                  </div>
                   
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">ICMS:</span>
@@ -289,20 +332,13 @@ export function ListaProdutos({
                   </div>
                 </div>
 
-                {/* Descrição */}
-                {produto.descricao && (
-                  <div className="text-sm text-gray-600 line-clamp-2">
-                    {produto.descricao}
-                  </div>
-                )}
-
                 {/* Ações */}
-                <div className="flex gap-2 pt-2 border-t">
+                <div className="flex gap-2 pt-2 border-t border-[var(--cor-primaria)]/10">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => onEditarProduto(produto)}
-                    className="flex-1"
+                    className="flex-1 border-[var(--cor-primaria)]/20 text-[var(--cor-primaria)] hover:bg-[var(--cor-primaria)]/10 hover:border-[var(--cor-primaria)]/40"
                   >
                     <Edit className="h-4 w-4 mr-1" />
                     Editar
@@ -311,7 +347,7 @@ export function ListaProdutos({
                     variant="outline"
                     size="sm"
                     onClick={() => handleDelete(produto)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="border-[var(--destructive)]/20 text-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:border-[var(--destructive)]/40"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -347,7 +383,7 @@ export function ListaProdutos({
               <ChevronLeft className="h-4 w-4" />
             </Button>
             
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-gray-700 px-2">
               Página {pagination.currentPage} de {pagination.totalPages}
             </span>
             

@@ -4,23 +4,27 @@ const nextConfig: NextConfig = {
   // Desabilitar React Strict Mode
   reactStrictMode: false,
   
-  // Configurações de desenvolvimento mínimas
+  // Otimizações para reduzir Fast Refresh
+  experimental: {
+    optimizePackageImports: ['@radix-ui/react-icons', 'lucide-react'],
+  },
+  
+  // Configurações de desenvolvimento mais simples
   ...(process.env.NODE_ENV === 'development' && {
     webpack: (config: any, { dev, isServer }) => {
       if (dev && !isServer) {
-        // Desabilitar completamente Fast Refresh e HMR
+        // Apenas desabilitar hot reload, manter outros plugins
         config.devServer = {
           ...config.devServer,
           hot: false,
           liveReload: false,
-          webSocketServer: false,
         };
         
-        // Remover FastRefreshPlugin
-        config.plugins = config.plugins.filter((plugin: any) => {
-          const pluginName = plugin.constructor.name;
-          return !pluginName.includes('FastRefreshPlugin');
-        });
+        // Configuração de watch básica
+        config.watchOptions = {
+          poll: false,
+          ignored: /node_modules/,
+        };
       }
       
       return config;

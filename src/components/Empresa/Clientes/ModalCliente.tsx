@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,11 @@ import {
   detectarTipoCPFCNPJ,
 } from "@/lib/masks/clienteMasks";
 import { validarCPFCNPJ } from "@/lib/validations/clienteSchema";
+import { 
+  validarDocumentoCompleto, 
+  obterDadosCnpjCompleto,
+  ValidationResult 
+} from "@/lib/validations/cpfCnpjValidationService";
 
 interface ModalClienteProps {
   open: boolean;
@@ -36,6 +41,9 @@ export function ModalCliente({
   onSubmit,
 }: ModalClienteProps) {
   const [loading, setLoading] = useState(false);
+  const [validatingDocument, setValidatingDocument] = useState(false);
+  const [documentValidation, setDocumentValidation] = useState<ValidationResult | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const [formData, setFormData] = useState({
     tipo: 'FISICA' as 'FISICA' | 'JURIDICA',
     nome_razao_social: '',
@@ -59,6 +67,12 @@ export function ModalCliente({
 
   // Preencher formulário quando cliente for fornecido (edição)
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    
     if (cliente) {
       setFormData({
         tipo: cliente.tipo,
@@ -95,7 +109,7 @@ export function ModalCliente({
       });
     }
     setErrors({});
-  }, [cliente, open]);
+  }, [cliente, open, isMounted]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -246,6 +260,58 @@ export function ModalCliente({
     return Object.keys(newErrors).length === 0;
   };
 
+  // Função para validar documento com API FOCUS NFE
+  const handleValidateDocument = async () => {
+    if (!formData.cpf_cnpj.trim()) return;
+
+    setValidatingDocument(true);
+    setDocumentValidation(null);
+
+    try {
+      const cpfCnpjLimpo = formData.tipo === 'FISICA' 
+        ? removeMaskCPF(formData.cpf_cnpj)
+        : removeMaskCNPJ(formData.cpf_cnpj);
+
+      const validation = await validarDocumentoCompleto(cpfCnpjLimpo, formData.tipo);
+      setDocumentValidation(validation);
+
+      // Se for CNPJ e válido, tentar obter dados para preenchimento automático
+      if (formData.tipo === 'JURIDICA' && validation.valido && validation.dados) {
+        try {
+          const dadosCnpj = await obterDadosCnpjCompleto(cpfCnpjLimpo);
+          if (dadosCnpj.success && dadosCnpj.data) {
+            // Preencher automaticamente os dados da empresa
+            setFormData(prev => ({
+              ...prev,
+              nome_razao_social: dadosCnpj.data.razao_social,
+              endereco: {
+                ...prev.endereco,
+                logradouro: dadosCnpj.data.endereco.logradouro,
+                numero: dadosCnpj.data.endereco.numero,
+                complemento: dadosCnpj.data.endereco.complemento || '',
+                bairro: dadosCnpj.data.endereco.bairro,
+                cidade: dadosCnpj.data.endereco.cidade,
+                uf: dadosCnpj.data.endereco.uf,
+                cep: dadosCnpj.data.endereco.cep,
+              }
+            }));
+          }
+        } catch (error) {
+          console.warn('Erro ao obter dados do CNPJ:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Erro na validação do documento:', error);
+      setDocumentValidation({
+        valido: false,
+        erro: 'Erro na validação do documento',
+        fonte: 'local'
+      });
+    } finally {
+      setValidatingDocument(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -277,6 +343,11 @@ export function ModalCliente({
     }
   };
 
+  // Evitar hidratação mismatch
+  if (!isMounted) {
+    return null;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -284,6 +355,9 @@ export function ModalCliente({
           <DialogTitle>
             {cliente ? 'Editar Cliente' : 'Novo Cliente'}
           </DialogTitle>
+          <DialogDescription>
+            {cliente ? 'Atualize as informações do cliente' : 'Preencha os dados do novo cliente'}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -325,18 +399,68 @@ export function ModalCliente({
               <Label htmlFor="cpf_cnpj">
                 {formData.tipo === 'FISICA' ? 'CPF *' : 'CNPJ *'}
               </Label>
-              <Input
-                id="cpf_cnpj"
-                value={formData.cpf_cnpj}
-                onChange={(e) => {
-                  const masked = formData.tipo === 'FISICA' 
-                    ? maskCPF(e.target.value)
-                    : maskCNPJ(e.target.value);
-                  handleCPFCNPJChange(masked);
-                }}
-                placeholder={formData.tipo === 'FISICA' ? '000.000.000-00' : '00.000.000/0000-00'}
-                className={errors.cpf_cnpj ? 'border-red-500' : ''}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="cpf_cnpj"
+                  value={formData.cpf_cnpj}
+                  onChange={(e) => {
+                    const masked = formData.tipo === 'FISICA' 
+                      ? maskCPF(e.target.value)
+                      : maskCNPJ(e.target.value);
+                    handleCPFCNPJChange(masked);
+                  }}
+                  placeholder={formData.tipo === 'FISICA' ? '000.000.000-00' : '00.000.000/0000-00'}
+                  className={`${errors.cpf_cnpj ? 'border-red-500' : ''} ${
+                    documentValidation?.valido ? 'border-green-500' : 
+                    documentValidation?.valido === false ? 'border-red-500' : ''
+                  }`}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleValidateDocument}
+                  disabled={!formData.cpf_cnpj.trim() || validatingDocument}
+                  className="px-3 whitespace-nowrap"
+                >
+                  {validatingDocument ? (
+                    <LoadingSpinnerInline />
+                  ) : (
+                    'Validar'
+                  )}
+                </Button>
+              </div>
+              
+              {/* Feedback de validação */}
+              {documentValidation && (
+                <div className="mt-2">
+                  {documentValidation.valido ? (
+                    <div className="flex items-center gap-2 text-green-600 text-sm">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <span>
+                        {formData.tipo === 'FISICA' ? 'CPF' : 'CNPJ'} válido
+                        {documentValidation.ativo !== undefined && (
+                          documentValidation.ativo ? ' e ativo' : ' mas inativo'
+                        )}
+                        {documentValidation.fonte === 'api' && ' (via Receita Federal)'}
+                        {documentValidation.fonte === 'hibrido' && ' (validação local)'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-600 text-sm">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                      <span>
+                        {documentValidation.erro || `${formData.tipo === 'FISICA' ? 'CPF' : 'CNPJ'} inválido`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               {errors.cpf_cnpj && (
                 <p className="text-sm text-red-500 mt-1">{errors.cpf_cnpj}</p>
               )}

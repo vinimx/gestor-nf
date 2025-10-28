@@ -47,33 +47,25 @@ export const logger = {
     console.error(...args);
   },
 
-  /**
-   * Log de debug - apenas em desenvolvimento com throttling
-   */
-  debug: (key: string, ...args: any[]) => {
-    if (shouldLog(key)) {
-      console.log(...args);
-    }
-  },
+    /**
+     * Log de debug - desabilitado completamente
+     */
+    debug: (key: string, ...args: any[]) => {
+      // Completamente desabilitado para evitar Fast Refresh
+    },
 
   /**
-   * Log de debug sem throttling (para logs únicos)
+   * Log de debug sem throttling (desabilitado)
    */
   debugOnce: (...args: any[]) => {
-    if (isDev) {
-      console.log(...args);
-    }
+    // Completamente desabilitado para evitar Fast Refresh
   },
 
   /**
-   * Log de grupo - apenas em desenvolvimento
+   * Log de grupo - desabilitado
    */
   group: (label: string, ...args: any[]) => {
-    if (isDev) {
-      console.group(label);
-      console.log(...args);
-      console.groupEnd();
-    }
+    // Completamente desabilitado para evitar Fast Refresh
   },
 };
 

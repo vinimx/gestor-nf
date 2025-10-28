@@ -55,6 +55,7 @@ export {
   SelectScrollDownButton,
 } from "./select";
 export { Skeleton } from "./skeleton";
+export { Textarea } from "./textarea";
 export {
   SkeletonEmpresaCard,
   SkeletonForm,
