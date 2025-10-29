@@ -17,10 +17,17 @@ interface FocusNCMResponse {
   success: boolean;
   data?: {
     codigo: string;
-    descricao: string;
-    unidade: string;
+    descricao_completa: string;
+    capitulo: string;
+    posicao: string;
+    subposicao1: string;
+    subposicao2: string;
+    item1: string;
+    item2: string;
     valid: boolean;
-  };
+  }[];
+  totalCount?: number;
+  source?: 'focus_nfe' | 'local' | 'local_fallback';
   error?: string;
 }
 
@@ -30,494 +37,709 @@ interface FocusCFOPResponse {
     codigo: string;
     descricao: string;
     valid: boolean;
-  };
+    tipo: 'ENTRADA' | 'SAIDA';
+  }[];
+  totalCount?: number;
+  source?: 'focus_nfe' | 'local' | 'local_fallback';
   error?: string;
+}
+
+interface FocusCSTResponse {
+  success: boolean;
+  data?: {
+    codigo: string;
+    descricao: string;
+    tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS';
+    aplicavel: boolean;
+  }[];
+  error?: string;
+}
+
+interface FocusSearchParams {
+  codigo?: string;
+  descricao?: string;
+  capitulo?: string;
+  posicao?: string;
+  subposicao1?: string;
+  subposicao2?: string;
+  item1?: string;
+  item2?: string;
+  offset?: number;
+  limit?: number;
+}
+
+interface FocusCFOPSearchParams {
+  codigo?: string;
+  descricao?: string;
+  offset?: number;
+  limit?: number;
 }
 
 class FocusProdutoService {
   private baseUrl: string;
   private apiToken: string;
+  private environment: string;
+  private useApi: boolean;
 
   constructor() {
-    // Configurar para usar API real da FOCUS NFE
     this.baseUrl = process.env.NEXT_PUBLIC_FOCUS_API_URL || 'https://api.focusnfe.com.br';
-    this.apiToken = process.env.FOCUS_API_TOKEN || '';
+    this.environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    this.apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN || '';
+    
+    // Ajustar URL base conforme ambiente
+    if (this.environment === 'homologacao') {
+      this.baseUrl = 'https://homologacao.focusnfe.com.br';
+    }
+    
+    // Priorizar API real da FOCUS NFE quando token estiver configurado
+    this.useApi = !!this.apiToken;
+    
+    console.log('FocusProdutoService configurado:', {
+      environment: this.environment,
+      baseUrl: this.baseUrl,
+      hasToken: !!this.apiToken,
+      useApi: this.useApi
+    });
   }
 
-  /**
-   * Validar dados de produto com FOCUS NFE
-   */
+  // ===== VALIDAÇÃO DE PRODUTOS =====
   async validarProduto(produtoData: FocusProdutoData): Promise<FocusValidationResponse> {
     try {
-      // Se não há token configurado, usar validação local
-      if (!this.apiToken) {
-        return this.validarProdutoLocal(produtoData);
+      // Validação local primeiro
+      const validacaoLocal = this.validarProdutoLocal(produtoData);
+      if (!validacaoLocal.success) {
+        return validacaoLocal;
       }
 
+      // Se API configurada e habilitada, validar via FOCUS NFE
+      if (this.useApi && this.apiToken) {
+        try {
       const response = await fetch(`${this.baseUrl}/v2/produtos/validar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-        body: JSON.stringify(produtoData),
-      });
+              'Authorization': `Basic ${btoa(this.apiToken + ':')}`
+            },
+            body: JSON.stringify(produtoData)
+          });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando validação local:', errorData);
-        return this.validarProdutoLocal(produtoData);
-      }
-
+          if (response.ok) {
       const data = await response.json();
       return {
         success: true,
         data: {
           valid: data.valid || false,
           errors: data.errors || [],
-          warnings: data.warnings || [],
-        },
-      };
+                warnings: data.warnings || []
+              }
+            };
+          }
+        } catch (error) {
+          console.warn('Erro na validação via API FOCUS NFE:', error);
+        }
+      }
+
+      return validacaoLocal;
     } catch (error) {
-      console.error('Erro ao validar produto com FOCUS:', error);
-      return this.validarProdutoLocal(produtoData);
+      return {
+        success: false,
+        error: 'Erro na validação do produto'
+      };
     }
   }
 
-  /**
-   * Validação local de produto (fallback)
-   */
-  private validarProdutoLocal(produtoData: FocusProdutoData): FocusValidationResponse {
+  private validarProdutoLocal(produtoData: any): FocusValidationResponse {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    if (!produtoData.codigo_produto) {
-      errors.push('Código do produto é obrigatório');
-    }
-
-    if (!produtoData.descricao) {
-      errors.push('Descrição é obrigatória');
-    }
-
-    if (!produtoData.codigo_ncm || !/^\d{8}$/.test(produtoData.codigo_ncm)) {
+    // Validações básicas
+    if (!produtoData.ncm || produtoData.ncm.length !== 8) {
       errors.push('NCM deve ter 8 dígitos');
     }
 
-    if (!produtoData.cfop || !/^\d{4}$/.test(produtoData.cfop)) {
-      errors.push('CFOP deve ter 4 dígitos');
+    if (!produtoData.cfop_saida || produtoData.cfop_saida.length !== 4) {
+      errors.push('CFOP de saída deve ter 4 dígitos');
     }
 
-    if (produtoData.valor_bruto <= 0) {
-      errors.push('Valor bruto deve ser maior que zero');
+    if (!produtoData.cfop_entrada || produtoData.cfop_entrada.length !== 4) {
+      errors.push('CFOP de entrada deve ter 4 dígitos');
     }
 
-    if (produtoData.icms_aliquota < 0 || produtoData.icms_aliquota > 100) {
-      warnings.push('Alíquota ICMS deve estar entre 0 e 100%');
+    if (produtoData.aliquota_icms < 0 || produtoData.aliquota_icms > 100) {
+      errors.push('Alíquota ICMS deve estar entre 0 e 100%');
     }
 
     return {
-      success: true,
+      success: errors.length === 0,
       data: {
         valid: errors.length === 0,
         errors,
-        warnings,
-      },
+        warnings
+      }
     };
   }
 
-  /**
-   * Consultar NCM na FOCUS NFE
-   */
+  // ===== CONSULTA DE NCM =====
   async consultarNCM(codigoNCM: string): Promise<FocusNCMResponse> {
     try {
-      // Se não há token configurado, usar dados mock
-      if (!this.apiToken) {
-        return this.consultarNCMLocal(codigoNCM);
-      }
-
-      const response = await fetch(`${this.baseUrl}/v2/ncm/${codigoNCM}`, {
+      if (this.useApi && this.apiToken) {
+        try {
+          // Tentar usar API route local primeiro (para evitar CORS)
+          const response = await fetch(`/api/focus/ncms/${codigoNCM}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
+              'Content-Type': 'application/json',
+            }
       });
 
-      if (!response.ok) {
-        if (response.status === 404) {
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
           return {
-            success: false,
-            error: 'NCM não encontrado',
-          };
+                success: true,
+                data: [{
+                  codigo: result.data.codigo,
+                  descricao_completa: result.data.descricao_completa,
+                  capitulo: result.data.capitulo,
+                  posicao: result.data.posicao,
+                  subposicao1: result.data.subposicao1,
+                  subposicao2: result.data.subposicao2,
+                  item1: result.data.item1,
+                  item2: result.data.item2,
+                  valid: true
+                }]
+              };
+            }
+          }
+        } catch (error) {
+          console.warn('Erro na consulta NCM via API route:', error);
         }
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando dados locais:', errorData);
-        return this.consultarNCMLocal(codigoNCM);
       }
 
-      const data = await response.json();
-      return {
-        success: true,
-        data: {
-          codigo: data.codigo || codigoNCM,
-          descricao: data.descricao || 'Descrição não disponível',
-          unidade: data.unidade || 'UN',
-          valid: true,
-        },
-      };
-    } catch (error) {
-      console.error('Erro ao consultar NCM:', error);
       return this.consultarNCMLocal(codigoNCM);
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Erro na consulta do NCM'
+      };
     }
   }
 
-  /**
-   * Consulta local de NCM (fallback)
-   */
   private consultarNCMLocal(codigoNCM: string): FocusNCMResponse {
-    const mockNCMs: Record<string, string> = {
-      '12345678': 'Produtos de informática e equipamentos de processamento de dados',
-      '12345679': 'Produtos eletrônicos e componentes',
-      '12345680': 'Produtos de telecomunicações',
-      '12345681': 'Produtos de automação industrial',
-      '12345682': 'Produtos de energia e equipamentos elétricos',
-      '12345683': 'Produtos de iluminação e luminárias',
-      '12345684': 'Produtos de segurança e monitoramento',
-      '12345685': 'Produtos de entretenimento e áudio/vídeo',
-      '12345686': 'Produtos de escritório e mobiliário',
-      '12345687': 'Produtos de limpeza e manutenção',
-      '12345688': 'Produtos de construção e materiais',
-      '12345689': 'Produtos de jardinagem e paisagismo',
-      '12345690': 'Produtos de esporte e lazer',
-      '12345691': 'Produtos de saúde e bem-estar',
-      '12345692': 'Produtos de alimentação e bebidas',
-      '12345693': 'Produtos de vestuário e acessórios',
-      '12345694': 'Produtos de calçados e couro',
-      '12345695': 'Produtos de cosméticos e higiene',
-      '12345696': 'Produtos de decoração e artesanato',
-      '12345697': 'Produtos de brinquedos e jogos',
-      '12345698': 'Produtos de livros e material didático',
-      '12345699': 'Produtos de papelaria e escritório',
-      '12345700': 'Produtos de ferramentas e equipamentos',
+    // Base de dados local simplificada para fallback
+    const ncmsLocais: Record<string, any> = {
+      '85171200': {
+        codigo: '85171200',
+        descricao_completa: 'Telefones celulares e outros equipamentos de comunicação',
+        capitulo: '85',
+        posicao: '17',
+        subposicao1: '1',
+        subposicao2: '2',
+        item1: '0',
+        item2: '0',
+        valid: true
+      },
+      '84713000': {
+        codigo: '84713000',
+        descricao_completa: 'Máquinas de processamento de dados e suas unidades',
+        capitulo: '84',
+        posicao: '71',
+        subposicao1: '3',
+        subposicao2: '0',
+        item1: '0',
+        item2: '0',
+        valid: true
+      }
     };
 
-    const descricao = mockNCMs[codigoNCM] || `Produto não classificado - NCM ${codigoNCM}`;
-    
+    const ncm = ncmsLocais[codigoNCM];
+    if (ncm) {
     return {
       success: true,
-      data: {
-        codigo: codigoNCM,
-        descricao,
-        unidade: 'UN',
-        valid: true,
-      },
+        data: [ncm]
+      };
+    }
+    
+    return {
+      success: false,
+      error: 'NCM não encontrado'
     };
   }
 
-  /**
-   * Buscar NCMs por termo
-   */
-  async buscarNCMs(termo: string): Promise<FocusNCMResponse> {
+  async buscarNCMs(params: FocusSearchParams): Promise<FocusNCMResponse> {
     try {
-      // Se não há token configurado, usar dados mock
-      if (!this.apiToken) {
-        return this.buscarNCMsLocal(termo);
-      }
+      if (this.useApi && this.apiToken) {
+        try {
+          const queryParams = new URLSearchParams();
+          
+          if (params.codigo) queryParams.append('codigo', params.codigo);
+          if (params.descricao) queryParams.append('descricao', params.descricao);
+          if (params.capitulo) queryParams.append('capitulo', params.capitulo);
+          if (params.posicao) queryParams.append('posicao', params.posicao);
+          if (params.subposicao1) queryParams.append('subposicao1', params.subposicao1);
+          if (params.subposicao2) queryParams.append('subposicao2', params.subposicao2);
+          if (params.item1) queryParams.append('item1', params.item1);
+          if (params.item2) queryParams.append('item2', params.item2);
+          if (params.offset) queryParams.append('offset', params.offset.toString());
+          if (params.limit) queryParams.append('limit', params.limit.toString());
 
-      const response = await fetch(`${this.baseUrl}/v2/ncm/buscar?q=${encodeURIComponent(termo)}`, {
+          console.log('FocusProdutoService: Buscando NCMs via API route...');
+
+          // Usar API route local para evitar CORS
+          const response = await fetch(`/api/focus/ncms?${queryParams}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-      });
+              'Content-Type': 'application/json',
+            }
+          });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando dados locais:', errorData);
-        return this.buscarNCMsLocal(termo);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+              console.log(`FocusProdutoService: Recebidos ${result.data.length} NCMs da fonte ${result.source}`);
+              return {
+                success: true,
+                data: result.data.map((item: any) => ({
+                  codigo: item.codigo,
+                  descricao_completa: item.descricao_completa,
+                  capitulo: item.capitulo,
+                  posicao: item.posicao,
+                  subposicao1: item.subposicao1,
+                  subposicao2: item.subposicao2,
+                  item1: item.item1,
+                  item2: item.item2,
+                  valid: true
+                })),
+                totalCount: result.totalCount,
+                source: result.source
+              };
+            }
+          } else {
+            console.warn('FocusProdutoService: Erro na resposta da API route NCM:', response.status);
+          }
+        } catch (error) {
+          console.warn('FocusProdutoService: Erro na busca NCM via API route:', error);
+        }
+      } else {
+        console.log('FocusProdutoService: Usando dados locais (API não configurada)');
       }
 
-      const data = await response.json();
-      return {
-        success: true,
-        data: data.data || [],
-      };
+      return this.buscarNCMsLocal(params);
     } catch (error) {
-      console.error('Erro ao buscar NCMs:', error);
-      return this.buscarNCMsLocal(termo);
+      console.error('FocusProdutoService: Erro na busca de NCMs:', error);
+      return {
+        success: false,
+        error: 'Erro na busca de NCMs'
+      };
     }
   }
 
-  /**
-   * Busca local de NCMs (fallback)
-   */
-  private buscarNCMsLocal(termo: string): FocusNCMResponse {
-    const mockNCMs: FocusNCMData[] = [
-      { codigo: '12345678', descricao: 'Produtos de informática e equipamentos de processamento de dados', unidade: 'UN', valid: true },
-      { codigo: '12345679', descricao: 'Produtos eletrônicos e componentes', unidade: 'UN', valid: true },
-      { codigo: '12345680', descricao: 'Produtos de telecomunicações', unidade: 'UN', valid: true },
-      { codigo: '12345681', descricao: 'Produtos de automação industrial', unidade: 'UN', valid: true },
-      { codigo: '12345682', descricao: 'Produtos de energia e equipamentos elétricos', unidade: 'UN', valid: true },
+  private buscarNCMsLocal(params: FocusSearchParams): FocusNCMResponse {
+    // Base de dados local para fallback
+    const ncmsLocais = [
+      {
+        codigo: '85171200',
+        descricao_completa: 'Telefones celulares e outros equipamentos de comunicação',
+        capitulo: '85',
+        posicao: '17',
+        subposicao1: '1',
+        subposicao2: '2',
+        item1: '0',
+        item2: '0',
+        valid: true
+      },
+      {
+        codigo: '84713000',
+        descricao_completa: 'Máquinas de processamento de dados e suas unidades',
+        capitulo: '84',
+        posicao: '71',
+        subposicao1: '3',
+        subposicao2: '0',
+        item1: '0',
+        item2: '0',
+        valid: true
+      },
+      {
+        codigo: '90049090',
+        descricao_completa: 'Óculos para correção, proteção ou outros fins, e artigos semelhantes',
+        capitulo: '90',
+        posicao: '04',
+        subposicao1: '9',
+        subposicao2: '0',
+        item1: '9',
+        item2: '0',
+        valid: true
+      }
     ];
 
-    const resultados = mockNCMs.filter(ncm => 
-      ncm.codigo.includes(termo) || 
-      ncm.descricao.toLowerCase().includes(termo.toLowerCase())
-    );
+    let resultados = ncmsLocais;
+
+    // Aplicar filtros
+    if (params.codigo) {
+      resultados = resultados.filter(ncm => 
+        ncm.codigo.includes(params.codigo!)
+      );
+    }
+
+    if (params.descricao) {
+      resultados = resultados.filter(ncm => 
+        ncm.descricao_completa.toLowerCase().includes(params.descricao!.toLowerCase())
+      );
+    }
+
+    if (params.capitulo) {
+      resultados = resultados.filter(ncm => 
+        ncm.capitulo === params.capitulo
+      );
+    }
 
     return {
       success: true,
       data: resultados,
+      totalCount: resultados.length
     };
   }
 
-  /**
-   * Consultar CFOP na FOCUS NFE
-   */
+  // ===== CONSULTA DE CFOP =====
   async consultarCFOP(codigoCFOP: string): Promise<FocusCFOPResponse> {
     try {
-      // Se não há token configurado, usar dados mock
-      if (!this.apiToken) {
-        return this.consultarCFOPLocal(codigoCFOP);
-      }
-
-      const response = await fetch(`${this.baseUrl}/v2/cfop/${codigoCFOP}`, {
+      if (this.useApi && this.apiToken) {
+        try {
+          // Usar API route local para evitar CORS
+          const response = await fetch(`/api/focus/cfops/${codigoCFOP}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
+              'Content-Type': 'application/json',
+            }
       });
 
-      if (!response.ok) {
-        if (response.status === 404) {
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
           return {
-            success: false,
-            error: 'CFOP não encontrado',
-          };
+                success: true,
+                data: [{
+                  codigo: result.data.codigo,
+                  descricao: result.data.descricao,
+                  valid: true,
+                  tipo: this.determinarTipoCFOP(result.data.codigo)
+                }]
+              };
+            }
+          }
+        } catch (error) {
+          console.warn('Erro na consulta CFOP via API route:', error);
         }
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando dados locais:', errorData);
-        return this.consultarCFOPLocal(codigoCFOP);
       }
 
-      const data = await response.json();
-      return {
-        success: true,
-        data: {
-          codigo: data.codigo || codigoCFOP,
-          descricao: data.descricao || 'Descrição não disponível',
-          valid: true,
-          tipo: data.tipo || (codigoCFOP.startsWith('1') ? 'ENTRADA' : 'SAIDA'),
-        },
-      };
-    } catch (error) {
-      console.error('Erro ao consultar CFOP:', error);
       return this.consultarCFOPLocal(codigoCFOP);
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Erro na consulta do CFOP'
+      };
     }
   }
 
-  /**
-   * Consulta local de CFOP (fallback)
-   */
   private consultarCFOPLocal(codigoCFOP: string): FocusCFOPResponse {
-    const mockCFOPs: Record<string, string> = {
-      '1101': 'Compra para industrialização',
-      '1102': 'Compra para comercialização',
-      '1111': 'Compra para industrialização de produto importado',
-      '1112': 'Compra para comercialização de produto importado',
-      '5101': 'Venda para industrialização',
-      '5102': 'Venda para comercialização',
-      '5103': 'Venda para industrialização de produto importado',
-      '5104': 'Venda para comercialização de produto importado',
+    // Base de dados local para fallback
+    const cfopsLocais: Record<string, any> = {
+      '5101': {
+        codigo: '5101',
+        descricao: '5101 - Venda de produção do estabelecimento',
+        valid: true,
+        tipo: 'SAIDA' as const
+      },
+      '5102': {
+        codigo: '5102',
+        descricao: '5102 - Venda de mercadoria adquirida ou recebida de terceiros',
+        valid: true,
+        tipo: 'SAIDA' as const
+      },
+      '1101': {
+        codigo: '1101',
+        descricao: '1101 - Compra para industrialização',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      },
+      '1102': {
+        codigo: '1102',
+        descricao: '1102 - Compra para comercialização',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      }
     };
 
-    const descricao = mockCFOPs[codigoCFOP] || `CFOP não encontrado - ${codigoCFOP}`;
-    const tipo = codigoCFOP.startsWith('1') ? 'ENTRADA' : 'SAIDA';
+    const cfop = cfopsLocais[codigoCFOP];
+    if (cfop) {
+    return {
+      success: true,
+        data: [cfop]
+      };
+    }
     
     return {
-      success: true,
-      data: {
-        codigo: codigoCFOP,
-        descricao,
+      success: false,
+      error: 'CFOP não encontrado'
+    };
+  }
+
+  async buscarCFOPs(params: FocusCFOPSearchParams): Promise<FocusCFOPResponse> {
+    try {
+      if (this.useApi && this.apiToken) {
+        try {
+          const queryParams = new URLSearchParams();
+          
+          if (params.codigo) queryParams.append('codigo', params.codigo);
+          if (params.descricao) queryParams.append('descricao', params.descricao);
+          if (params.offset) queryParams.append('offset', params.offset.toString());
+          if (params.limit) queryParams.append('limit', params.limit.toString());
+
+          console.log('FocusProdutoService: Buscando CFOPs via API route...');
+
+          // Usar API route local para evitar CORS
+          const response = await fetch(`/api/focus/cfops?${queryParams}`, {
+        method: 'GET',
+        headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+              console.log(`FocusProdutoService: Recebidos ${result.data.length} CFOPs da fonte ${result.source}`);
+              return {
+                success: true,
+                data: result.data.map((item: any) => ({
+                  codigo: item.codigo,
+                  descricao: item.descricao,
+                  valid: true,
+                  tipo: this.determinarTipoCFOP(item.codigo)
+                })),
+                totalCount: result.totalCount,
+                source: result.source
+              };
+            }
+          } else {
+            console.warn('FocusProdutoService: Erro na resposta da API route CFOP:', response.status);
+          }
+        } catch (error) {
+          console.warn('FocusProdutoService: Erro na busca CFOP via API route:', error);
+        }
+      } else {
+        console.log('FocusProdutoService: Usando dados locais (API não configurada)');
+      }
+
+      return this.buscarCFOPsLocal(params);
+    } catch (error) {
+      console.error('FocusProdutoService: Erro na busca de CFOPs:', error);
+      return {
+        success: false,
+        error: 'Erro na busca de CFOPs'
+      };
+    }
+  }
+
+  private buscarCFOPsLocal(params: FocusCFOPSearchParams): FocusCFOPResponse {
+    // Base de dados local para fallback
+    const cfopsLocais = [
+      {
+        codigo: '5101',
+        descricao: '5101 - Venda de produção do estabelecimento',
         valid: true,
-        tipo: tipo as 'ENTRADA' | 'SAIDA',
+        tipo: 'SAIDA' as const
       },
-    };
-  }
-
-  /**
-   * Buscar CFOPs por termo e tipo
-   */
-  async buscarCFOPs(termo: string, tipo?: 'ENTRADA' | 'SAIDA'): Promise<FocusCFOPResponse> {
-    try {
-      // Se não há token configurado, usar dados mock
-      if (!this.apiToken) {
-        return this.buscarCFOPsLocal(termo, tipo);
+      {
+        codigo: '5102',
+        descricao: '5102 - Venda de mercadoria adquirida ou recebida de terceiros',
+        valid: true,
+        tipo: 'SAIDA' as const
+      },
+      {
+        codigo: '5103',
+        descricao: '5103 - Venda de mercadoria adquirida ou recebida de terceiros, efetuada fora do estabelecimento',
+        valid: true,
+        tipo: 'SAIDA' as const
+      },
+      {
+        codigo: '1101',
+        descricao: '1101 - Compra para industrialização',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      },
+      {
+        codigo: '1102',
+        descricao: '1102 - Compra para comercialização',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      },
+      {
+        codigo: '1103',
+        descricao: '1103 - Compra para industrialização de produto sujeito ao regime de substituição tributária',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      },
+      {
+        codigo: '2151',
+        descricao: '2151 - Transferência p/ industrialização ou produção rural',
+        valid: true,
+        tipo: 'ENTRADA' as const
+      },
+      {
+        codigo: '2152',
+        descricao: '2152 - Transferência p/ comercialização',
+        valid: true,
+        tipo: 'ENTRADA' as const
       }
-
-      const params = new URLSearchParams({ q: termo });
-      if (tipo) params.append('tipo', tipo);
-      
-      const response = await fetch(`${this.baseUrl}/v2/cfop/buscar?${params}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando dados locais:', errorData);
-        return this.buscarCFOPsLocal(termo, tipo);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data.data || [],
-      };
-    } catch (error) {
-      console.error('Erro ao buscar CFOPs:', error);
-      return this.buscarCFOPsLocal(termo, tipo);
-    }
-  }
-
-  /**
-   * Busca local de CFOPs (fallback)
-   */
-  private buscarCFOPsLocal(termo: string, tipo?: 'ENTRADA' | 'SAIDA'): FocusCFOPResponse {
-    const mockCFOPs: FocusCFOPData[] = [
-      { codigo: '1101', descricao: 'Compra para industrialização', valid: true, tipo: 'ENTRADA' },
-      { codigo: '1102', descricao: 'Compra para comercialização', valid: true, tipo: 'ENTRADA' },
-      { codigo: '1111', descricao: 'Compra para industrialização de produto importado', valid: true, tipo: 'ENTRADA' },
-      { codigo: '1112', descricao: 'Compra para comercialização de produto importado', valid: true, tipo: 'ENTRADA' },
-      { codigo: '5101', descricao: 'Venda para industrialização', valid: true, tipo: 'SAIDA' },
-      { codigo: '5102', descricao: 'Venda para comercialização', valid: true, tipo: 'SAIDA' },
-      { codigo: '5103', descricao: 'Venda para industrialização de produto importado', valid: true, tipo: 'SAIDA' },
-      { codigo: '5104', descricao: 'Venda para comercialização de produto importado', valid: true, tipo: 'SAIDA' },
     ];
 
-    let resultados = mockCFOPs.filter(cfop => 
-      cfop.codigo.includes(termo) || 
-      cfop.descricao.toLowerCase().includes(termo.toLowerCase())
-    );
+    let resultados = cfopsLocais;
 
-    if (tipo) {
-      resultados = resultados.filter(cfop => cfop.tipo === tipo);
+    // Aplicar filtros
+    if (params.codigo) {
+      resultados = resultados.filter(cfop => 
+        cfop.codigo.includes(params.codigo!)
+      );
+    }
+
+    if (params.descricao) {
+      resultados = resultados.filter(cfop => 
+        cfop.descricao.toLowerCase().includes(params.descricao!.toLowerCase())
+      );
     }
 
     return {
       success: true,
       data: resultados,
+      totalCount: resultados.length
     };
   }
 
-  /**
-   * Buscar CSTs por tipo
-   */
-  async buscarCSTs(tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  private determinarTipoCFOP(codigo: string): 'ENTRADA' | 'SAIDA' {
+    const primeiroDigito = codigo.charAt(0);
+    return ['1', '2', '3'].includes(primeiroDigito) ? 'ENTRADA' : 'SAIDA';
+  }
+
+  // ===== CONSULTA DE CST =====
+  async buscarCSTs(tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): Promise<FocusCSTResponse> {
     try {
-      // Se não há token configurado, usar dados mock
-      if (!this.apiToken) {
+      // CSTs são baseados em legislação, não há API específica da FOCUS NFE
         return this.buscarCSTsLocal(tipo);
-      }
-
-      const response = await fetch(`${this.baseUrl}/v2/csts?tipo=${tipo}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.warn('Erro na API FOCUS, usando dados locais:', errorData);
-        return this.buscarCSTsLocal(tipo);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data.data || [],
-      };
     } catch (error) {
-      console.error('Erro ao buscar CSTs:', error);
-      return this.buscarCSTsLocal(tipo);
+      return {
+        success: false,
+        error: 'Erro na busca de CSTs'
+      };
     }
   }
 
-  /**
-   * Busca local de CSTs (fallback)
-   */
-  private buscarCSTsLocal(tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): { success: boolean; data?: any[]; error?: string } {
-    const cstsICMS = [
-      { codigo: '00', descricao: 'Tributada integralmente', tipo: 'ICMS' },
-      { codigo: '10', descricao: 'Tributada e com cobrança do ICMS por substituição tributária', tipo: 'ICMS' },
-      { codigo: '20', descricao: 'Com redução de base de cálculo', tipo: 'ICMS' },
-      { codigo: '30', descricao: 'Isenta ou não tributada e com cobrança do ICMS por substituição tributária', tipo: 'ICMS' },
-      { codigo: '40', descricao: 'Isenta', tipo: 'ICMS' },
-      { codigo: '41', descricao: 'Não tributada', tipo: 'ICMS' },
-      { codigo: '50', descricao: 'Suspensão', tipo: 'ICMS' },
-      { codigo: '51', descricao: 'Diferimento', tipo: 'ICMS' },
-      { codigo: '60', descricao: 'ICMS cobrado anteriormente por substituição tributária', tipo: 'ICMS' },
-      { codigo: '70', descricao: 'Com redução de base de cálculo e cobrança do ICMS por substituição tributária', tipo: 'ICMS' },
-      { codigo: '90', descricao: 'Outras', tipo: 'ICMS' }
-    ];
-
-    const cstsIPI = [
-      { codigo: '00', descricao: 'Entrada com recuperação de crédito', tipo: 'IPI' },
-      { codigo: '01', descricao: 'Entrada tributada com alíquota básica', tipo: 'IPI' },
-      { codigo: '02', descricao: 'Entrada tributada com alíquota por unidade de produto', tipo: 'IPI' },
-      { codigo: '49', descricao: 'Outras entradas', tipo: 'IPI' },
-      { codigo: '50', descricao: 'Saída tributada', tipo: 'IPI' },
-      { codigo: '51', descricao: 'Saída tributada com alíquota por unidade de produto', tipo: 'IPI' },
-      { codigo: '99', descricao: 'Outras saídas', tipo: 'IPI' }
-    ];
-
-    const cstsPIS = [
-      { codigo: '01', descricao: 'Operação tributável com alíquota básica', tipo: 'PIS' },
-      { codigo: '02', descricao: 'Operação tributável com alíquota diferenciada', tipo: 'PIS' },
-      { codigo: '03', descricao: 'Operação tributável com alíquota por unidade de medida de produto', tipo: 'PIS' },
-      { codigo: '04', descricao: 'Operação tributável monofásica - revenda a alíquota zero', tipo: 'PIS' },
-      { codigo: '05', descricao: 'Operação tributável por substituição tributária', tipo: 'PIS' },
-      { codigo: '06', descricao: 'Operação tributável a alíquota zero', tipo: 'PIS' },
-      { codigo: '07', descricao: 'Operação isenta da contribuição', tipo: 'PIS' },
-      { codigo: '08', descricao: 'Operação sem incidência da contribuição', tipo: 'PIS' },
-      { codigo: '09', descricao: 'Operação com suspensão da contribuição', tipo: 'PIS' },
-      { codigo: '49', descricao: 'Outras operações de saída', tipo: 'PIS' }
-    ];
-
-    const cstsCOFINS = [
-      { codigo: '01', descricao: 'Operação tributável com alíquota básica', tipo: 'COFINS' },
-      { codigo: '02', descricao: 'Operação tributável com alíquota diferenciada', tipo: 'COFINS' },
-      { codigo: '03', descricao: 'Operação tributável com alíquota por unidade de medida de produto', tipo: 'COFINS' },
-      { codigo: '04', descricao: 'Operação tributável monofásica - revenda a alíquota zero', tipo: 'COFINS' },
-      { codigo: '05', descricao: 'Operação tributável por substituição tributária', tipo: 'COFINS' },
-      { codigo: '06', descricao: 'Operação tributável a alíquota zero', tipo: 'COFINS' },
-      { codigo: '07', descricao: 'Operação isenta da contribuição', tipo: 'COFINS' },
-      { codigo: '08', descricao: 'Operação sem incidência da contribuição', tipo: 'COFINS' },
-      { codigo: '09', descricao: 'Operação com suspensão da contribuição', tipo: 'COFINS' },
-      { codigo: '49', descricao: 'Outras operações de saída', tipo: 'COFINS' }
-    ];
-
-    let resultados: any[] = [];
-    switch (tipo) {
-      case 'ICMS':
-        resultados = cstsICMS;
-        break;
-      case 'IPI':
-        resultados = cstsIPI;
-        break;
-      case 'PIS':
-        resultados = cstsPIS;
-        break;
-      case 'COFINS':
-        resultados = cstsCOFINS;
-        break;
-    }
+  private buscarCSTsLocal(tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): FocusCSTResponse {
+    const cstsPorTipo: Record<string, any[]> = {
+      ICMS: [
+        { codigo: '00', descricao: '00 - Tributada integralmente', aplicavel: true },
+        { codigo: '10', descricao: '10 - Tributada e com cobrança do ICMS por substituição tributária', aplicavel: true },
+        { codigo: '20', descricao: '20 - Com redução de base de cálculo', aplicavel: true },
+        { codigo: '30', descricao: '30 - Isenta ou não tributada e com cobrança do ICMS por substituição tributária', aplicavel: true },
+        { codigo: '40', descricao: '40 - Isenta', aplicavel: true },
+        { codigo: '41', descricao: '41 - Não tributada', aplicavel: true },
+        { codigo: '50', descricao: '50 - Suspensão', aplicavel: true },
+        { codigo: '51', descricao: '51 - Diferimento', aplicavel: true },
+        { codigo: '60', descricao: '60 - ICMS cobrado anteriormente por substituição tributária', aplicavel: true },
+        { codigo: '70', descricao: '70 - Com redução de base de cálculo e cobrança do ICMS por substituição tributária', aplicavel: true },
+        { codigo: '90', descricao: '90 - Outras', aplicavel: true }
+      ],
+      IPI: [
+        { codigo: '00', descricao: '00 - Entrada com recuperação de crédito', aplicavel: true },
+        { codigo: '01', descricao: '01 - Entrada tributada com alíquota básica', aplicavel: true },
+        { codigo: '02', descricao: '02 - Entrada tributada com alíquota diferenciada', aplicavel: true },
+        { codigo: '03', descricao: '03 - Entrada tributada com alíquota por unidade de medida de produto', aplicavel: true },
+        { codigo: '04', descricao: '04 - Entrada tributada com alíquota por unidade de medida de produto', aplicavel: true },
+        { codigo: '05', descricao: '05 - Entrada sem tributação', aplicavel: true },
+        { codigo: '49', descricao: '49 - Outras entradas', aplicavel: true },
+        { codigo: '50', descricao: '50 - Saída tributada', aplicavel: true },
+        { codigo: '51', descricao: '51 - Saída tributável com alíquota por unidade de medida de produto', aplicavel: true },
+        { codigo: '52', descricao: '52 - Saída tributável com alíquota por unidade de medida de produto', aplicavel: true },
+        { codigo: '53', descricao: '53 - Saída tributável com alíquota por unidade de medida de produto', aplicavel: true },
+        { codigo: '54', descricao: '54 - Saída não tributada', aplicavel: true },
+        { codigo: '55', descricao: '55 - Saída isenta', aplicavel: true },
+        { codigo: '99', descricao: '99 - Outras saídas', aplicavel: true }
+      ],
+      PIS: [
+        { codigo: '01', descricao: '01 - Operação tributável (base de cálculo = valor da operação alíquota normal (cumulativo/não cumulativo))', aplicavel: true },
+        { codigo: '02', descricao: '02 - Operação tributável (base de cálculo = valor da operação (alíquota diferenciada))', aplicavel: true },
+        { codigo: '03', descricao: '03 - Operação tributável (base de cálculo = quantidade vendida × alíquota por unidade de produto)', aplicavel: true },
+        { codigo: '04', descricao: '04 - Operação tributável (tributação monofásica (alíquota zero))', aplicavel: true },
+        { codigo: '05', descricao: '05 - Operação tributável (substituição tributária)', aplicavel: true },
+        { codigo: '06', descricao: '06 - Operação tributável (alíquota zero)', aplicavel: true },
+        { codigo: '07', descricao: '07 - Operação isenta da contribuição', aplicavel: true },
+        { codigo: '08', descricao: '08 - Operação sem incidência da contribuição', aplicavel: true },
+        { codigo: '09', descricao: '09 - Operação com suspensão da contribuição', aplicavel: true },
+        { codigo: '49', descricao: '49 - Outras operações de saída', aplicavel: true },
+        { codigo: '50', descricao: '50 - Operação com direito a crédito - vinculada exclusivamente a receita tributada no mercado interno', aplicavel: true },
+        { codigo: '51', descricao: '51 - Operação com direito a crédito - vinculada exclusivamente a receita não tributada no mercado interno', aplicavel: true },
+        { codigo: '52', descricao: '52 - Operação com direito a crédito - vinculada exclusivamente a receita de exportação', aplicavel: true },
+        { codigo: '53', descricao: '53 - Operação com direito a crédito - vinculada a receitas tributadas e não-tributadas no mercado interno', aplicavel: true },
+        { codigo: '54', descricao: '54 - Operação com direito a crédito - vinculada a receitas tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '55', descricao: '55 - Operação com direito a crédito - vinculada a receitas não-tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '56', descricao: '56 - Operação com direito a crédito - vinculada a receitas tributadas e não-tributadas no mercado interno, e de exportação', aplicavel: true },
+        { codigo: '60', descricao: '60 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita tributada no mercado interno', aplicavel: true },
+        { codigo: '61', descricao: '61 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita não-tributada no mercado interno', aplicavel: true },
+        { codigo: '62', descricao: '62 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita de exportação', aplicavel: true },
+        { codigo: '63', descricao: '63 - Crédito presunto - operação de aquisição vinculada a receitas tributadas e não-tributadas no mercado interno', aplicavel: true },
+        { codigo: '64', descricao: '64 - Crédito presunto - operação de aquisição vinculada a receitas tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '65', descricao: '65 - Crédito presunto - operação de aquisição vinculada a receitas não-tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '66', descricao: '66 - Crédito presunto - operação de aquisição vinculada a receitas tributadas e não-tributadas no mercado interno, e de exportação', aplicavel: true },
+        { codigo: '67', descricao: '67 - Crédito presunto - outras operações', aplicavel: true },
+        { codigo: '70', descricao: '70 - Operação de aquisição sem direito a crédito', aplicavel: true },
+        { codigo: '71', descricao: '71 - Operação de aquisição com isenção', aplicavel: true },
+        { codigo: '72', descricao: '72 - Operação de aquisição com suspensão', aplicavel: true },
+        { codigo: '73', descricao: '73 - Operação de aquisição a alíquota zero', aplicavel: true },
+        { codigo: '74', descricao: '74 - Operação de aquisição sem incidência da contribuição', aplicavel: true },
+        { codigo: '75', descricao: '75 - Operação de aquisição por substituição tributária', aplicavel: true },
+        { codigo: '98', descricao: '98 - Outras operações de entrada', aplicavel: true },
+        { codigo: '99', descricao: '99 - Outras operações', aplicavel: true }
+      ],
+      COFINS: [
+        { codigo: '01', descricao: '01 - Operação tributável (base de cálculo = valor da operação alíquota normal (cumulativo/não cumulativo))', aplicavel: true },
+        { codigo: '02', descricao: '02 - Operação tributável (base de cálculo = valor da operação (alíquota diferenciada))', aplicavel: true },
+        { codigo: '03', descricao: '03 - Operação tributável (base de cálculo = quantidade vendida × alíquota por unidade de produto)', aplicavel: true },
+        { codigo: '04', descricao: '04 - Operação tributável (tributação monofásica (alíquota zero))', aplicavel: true },
+        { codigo: '05', descricao: '05 - Operação tributável (substituição tributária)', aplicavel: true },
+        { codigo: '06', descricao: '06 - Operação tributável (alíquota zero)', aplicavel: true },
+        { codigo: '07', descricao: '07 - Operação isenta da contribuição', aplicavel: true },
+        { codigo: '08', descricao: '08 - Operação sem incidência da contribuição', aplicavel: true },
+        { codigo: '09', descricao: '09 - Operação com suspensão da contribuição', aplicavel: true },
+        { codigo: '49', descricao: '49 - Outras operações de saída', aplicavel: true },
+        { codigo: '50', descricao: '50 - Operação com direito a crédito - vinculada exclusivamente a receita tributada no mercado interno', aplicavel: true },
+        { codigo: '51', descricao: '51 - Operação com direito a crédito - vinculada exclusivamente a receita não tributada no mercado interno', aplicavel: true },
+        { codigo: '52', descricao: '52 - Operação com direito a crédito - vinculada exclusivamente a receita de exportação', aplicavel: true },
+        { codigo: '53', descricao: '53 - Operação com direito a crédito - vinculada a receitas tributadas e não-tributadas no mercado interno', aplicavel: true },
+        { codigo: '54', descricao: '54 - Operação com direito a crédito - vinculada a receitas tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '55', descricao: '55 - Operação com direito a crédito - vinculada a receitas não-tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '56', descricao: '56 - Operação com direito a crédito - vinculada a receitas tributadas e não-tributadas no mercado interno, e de exportação', aplicavel: true },
+        { codigo: '60', descricao: '60 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita tributada no mercado interno', aplicavel: true },
+        { codigo: '61', descricao: '61 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita não-tributada no mercado interno', aplicavel: true },
+        { codigo: '62', descricao: '62 - Crédito presunto - operação de aquisição vinculada exclusivamente a receita de exportação', aplicavel: true },
+        { codigo: '63', descricao: '63 - Crédito presunto - operação de aquisição vinculada a receitas tributadas e não-tributadas no mercado interno', aplicavel: true },
+        { codigo: '64', descricao: '64 - Crédito presunto - operação de aquisição vinculada a receitas tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '65', descricao: '65 - Crédito presunto - operação de aquisição vinculada a receitas não-tributadas no mercado interno e de exportação', aplicavel: true },
+        { codigo: '66', descricao: '66 - Crédito presunto - operação de aquisição vinculada a receitas tributadas e não-tributadas no mercado interno, e de exportação', aplicavel: true },
+        { codigo: '67', descricao: '67 - Crédito presunto - outras operações', aplicavel: true },
+        { codigo: '70', descricao: '70 - Operação de aquisição sem direito a crédito', aplicavel: true },
+        { codigo: '71', descricao: '71 - Operação de aquisição com isenção', aplicavel: true },
+        { codigo: '72', descricao: '72 - Operação de aquisição com suspensão', aplicavel: true },
+        { codigo: '73', descricao: '73 - Operação de aquisição a alíquota zero', aplicavel: true },
+        { codigo: '74', descricao: '74 - Operação de aquisição sem incidência da contribuição', aplicavel: true },
+        { codigo: '75', descricao: '75 - Operação de aquisição por substituição tributária', aplicavel: true },
+        { codigo: '98', descricao: '98 - Outras operações de entrada', aplicavel: true },
+        { codigo: '99', descricao: '99 - Outras operações', aplicavel: true }
+      ]
+    };
 
     return {
       success: true,
-      data: resultados,
+      data: cstsPorTipo[tipo] || []
     };
   }
 }

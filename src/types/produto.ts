@@ -143,6 +143,11 @@ export interface FocusProdutoData {
   pis_aliquota_porcentual?: number;
   cofins_situacao_tributaria?: string;
   cofins_aliquota_porcentual?: number;
+  // Campos adicionais para compatibilidade
+  ncm: string;
+  cfop_saida: string;
+  cfop_entrada: string;
+  aliquota_icms: number;
 }
 
 // Configurações padrão para impostos
@@ -187,8 +192,13 @@ export const TIPOS_PRODUTO = [
 // Tipos para integração FOCUS NFE
 export interface FocusNCMData {
   codigo: string;
-  descricao: string;
-  unidade: string;
+  descricao_completa: string;
+  capitulo: string;
+  posicao: string;
+  subposicao1: string;
+  subposicao2: string;
+  item1: string;
+  item2: string;
   valid: boolean;
 }
 
@@ -203,4 +213,5 @@ export interface FocusCSTData {
   codigo: string;
   descricao: string;
   tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS';
+  aplicavel: boolean;
 }

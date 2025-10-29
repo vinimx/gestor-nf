@@ -5,6 +5,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { produtoSchema, produtoToFocusFormat } from "@/lib/validations/produtoSchema";
 import { focusProdutoService } from "@/lib/services/focusProdutoService";
+import { SeletorNCM } from "@/components/Produtos/Seletores/SeletorNCM";
+import { SeletorCFOP } from "@/components/Produtos/Seletores/SeletorCFOP";
+import { SeletorCST } from "@/components/Produtos/Seletores/SeletorCST";
 import { Produto, ProdutoCreate, ProdutoUpdate, TIPOS_PRODUTO, UNIDADES_MEDIDA } from "@/types/produto";
 import { useCategoriasProdutos } from "@/hooks/useProdutos";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -42,24 +45,6 @@ interface ValidationState {
   descricao: { valid: boolean; loading: boolean; message?: string };
 }
 
-interface NCMResult {
-  codigo: string;
-  descricao: string;
-  valid: boolean;
-}
-
-interface CFOPResult {
-  codigo: string;
-  descricao: string;
-  valid: boolean;
-  tipo: 'ENTRADA' | 'SAIDA';
-}
-
-interface CSTResult {
-  codigo: string;
-  descricao: string;
-  tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS';
-}
 
 export function ModalProduto({
   open,
@@ -76,14 +61,6 @@ export function ModalProduto({
     focus: { valid: false, loading: false },
     descricao: { valid: false, loading: false },
   });
-  const [ncmResults, setNcmResults] = useState<NCMResult[]>([]);
-  const [cfopResults, setCfopResults] = useState<CFOPResult[]>([]);
-  const [cstResults, setCstResults] = useState<CSTResult[]>([]);
-  const [showNcmResults, setShowNcmResults] = useState(false);
-  const [showCfopSaidaResults, setShowCfopSaidaResults] = useState(false);
-  const [showCfopEntradaResults, setShowCfopEntradaResults] = useState(false);
-  const [showCstResults, setShowCstResults] = useState(false);
-  const [currentCstType, setCurrentCstType] = useState<'ICMS' | 'IPI' | 'PIS' | 'COFINS' | null>(null);
 
   const { toast } = useToast();
   const { categorias, loading: categoriasLoading } = useCategoriasProdutos(produto?.empresa_id || "");
@@ -117,9 +94,6 @@ export function ModalProduto({
     },
   });
 
-  const watchedNcm = watch("ncm");
-  const watchedCfopSaida = watch("cfop_saida");
-  const watchedCfopEntrada = watch("cfop_entrada");
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -150,204 +124,6 @@ export function ModalProduto({
     }
   }, [open, produto, reset]);
 
-  // Buscar NCM conforme digita
-  useEffect(() => {
-    const searchNcm = async () => {
-      if (!watchedNcm || watchedNcm.length < 4) {
-        setNcmResults([]);
-        setShowNcmResults(false);
-        return;
-      }
-
-      try {
-        setValidationState(prev => ({
-          ...prev,
-          ncm: { ...prev.ncm, loading: true }
-        }));
-
-        const result = await focusProdutoService.consultarNCM(watchedNcm);
-        
-        if (result.success && result.data) {
-          setNcmResults([{
-            codigo: watchedNcm,
-            descricao: result.data.descricao,
-            valid: true
-          }]);
-          setShowNcmResults(true);
-          setValidationState(prev => ({
-            ...prev,
-            ncm: { valid: true, loading: false, message: "NCM válido", descricao: result.data?.descricao }
-          }));
-          clearErrors("ncm");
-        } else {
-          setNcmResults([]);
-          setShowNcmResults(false);
-          setValidationState(prev => ({
-            ...prev,
-            ncm: { valid: false, loading: false, message: "NCM não encontrado" }
-          }));
-          setError("ncm", { message: "NCM não encontrado" });
-        }
-      } catch (error) {
-        console.error("Erro ao consultar NCM:", error);
-        setNcmResults([]);
-        setShowNcmResults(false);
-        setValidationState(prev => ({
-          ...prev,
-          ncm: { valid: false, loading: false, message: "Erro ao consultar NCM" }
-        }));
-      }
-    };
-
-    const timeoutId = setTimeout(searchNcm, 500);
-    return () => clearTimeout(timeoutId);
-  }, [watchedNcm, setError, clearErrors]);
-
-  // Buscar CFOP Saída conforme digita
-  useEffect(() => {
-    const searchCfopSaida = async () => {
-      if (!watchedCfopSaida || watchedCfopSaida.length < 4) {
-        setCfopResults([]);
-        setShowCfopSaidaResults(false);
-        return;
-      }
-
-      try {
-        setValidationState(prev => ({
-          ...prev,
-          cfopSaida: { ...prev.cfopSaida, loading: true }
-        }));
-
-        const result = await focusProdutoService.consultarCFOP(watchedCfopSaida);
-        
-        if (result.success && result.data) {
-          setCfopResults([{
-            codigo: watchedCfopSaida,
-            descricao: result.data.descricao,
-            valid: true,
-            tipo: 'SAIDA'
-          }]);
-          setShowCfopSaidaResults(true);
-          setValidationState(prev => ({
-            ...prev,
-            cfopSaida: { valid: true, loading: false, message: "CFOP válido", descricao: result.data?.descricao }
-          }));
-          clearErrors("cfop_saida");
-        } else {
-          setCfopResults([]);
-          setShowCfopSaidaResults(false);
-          setValidationState(prev => ({
-            ...prev,
-            cfopSaida: { valid: false, loading: false, message: "CFOP não encontrado" }
-          }));
-          setError("cfop_saida", { message: "CFOP não encontrado" });
-        }
-      } catch (error) {
-        console.error("Erro ao consultar CFOP Saída:", error);
-        setCfopResults([]);
-        setShowCfopSaidaResults(false);
-        setValidationState(prev => ({
-          ...prev,
-          cfopSaida: { valid: false, loading: false, message: "Erro ao consultar CFOP" }
-        }));
-      }
-    };
-
-    const timeoutId = setTimeout(searchCfopSaida, 500);
-    return () => clearTimeout(timeoutId);
-  }, [watchedCfopSaida, setError, clearErrors]);
-
-  // Buscar CFOP Entrada conforme digita
-  useEffect(() => {
-    const searchCfopEntrada = async () => {
-      if (!watchedCfopEntrada || watchedCfopEntrada.length < 4) {
-        setCfopResults([]);
-        setShowCfopEntradaResults(false);
-        return;
-      }
-
-      try {
-        setValidationState(prev => ({
-          ...prev,
-          cfopEntrada: { ...prev.cfopEntrada, loading: true }
-        }));
-
-        const result = await focusProdutoService.consultarCFOP(watchedCfopEntrada);
-        
-        if (result.success && result.data) {
-          setCfopResults([{
-            codigo: watchedCfopEntrada,
-            descricao: result.data.descricao,
-            valid: true,
-            tipo: 'ENTRADA'
-          }]);
-          setShowCfopEntradaResults(true);
-          setValidationState(prev => ({
-            ...prev,
-            cfopEntrada: { valid: true, loading: false, message: "CFOP válido", descricao: result.data?.descricao }
-          }));
-          clearErrors("cfop_entrada");
-        } else {
-          setCfopResults([]);
-          setShowCfopEntradaResults(false);
-          setValidationState(prev => ({
-            ...prev,
-            cfopEntrada: { valid: false, loading: false, message: "CFOP não encontrado" }
-          }));
-          setError("cfop_entrada", { message: "CFOP não encontrado" });
-        }
-      } catch (error) {
-        console.error("Erro ao consultar CFOP Entrada:", error);
-        setCfopResults([]);
-        setShowCfopEntradaResults(false);
-        setValidationState(prev => ({
-          ...prev,
-          cfopEntrada: { valid: false, loading: false, message: "Erro ao consultar CFOP" }
-        }));
-      }
-    };
-
-    const timeoutId = setTimeout(searchCfopEntrada, 500);
-    return () => clearTimeout(timeoutId);
-  }, [watchedCfopEntrada, setError, clearErrors]);
-
-  // Função para buscar CSTs
-  const buscarCSTs = async (tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS') => {
-    try {
-      setCurrentCstType(tipo);
-      const result = await focusProdutoService.buscarCSTs(tipo);
-      
-      if (result.success && result.data) {
-        setCstResults(result.data);
-        setShowCstResults(true);
-      } else {
-        setCstResults([]);
-        setShowCstResults(false);
-        toast({
-          title: "Erro ao buscar CSTs",
-          description: result.error || "Erro desconhecido",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Erro ao buscar CSTs:", error);
-      setCstResults([]);
-      setShowCstResults(false);
-      toast({
-        title: "Erro ao buscar CSTs",
-        description: "Erro de conexão",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Função para selecionar CST
-  const selecionarCST = (cst: CSTResult) => {
-    const fieldName = `cst_${cst.tipo.toLowerCase()}` as keyof any;
-    setValue(fieldName, cst.codigo);
-    setShowCstResults(false);
-    setCurrentCstType(null);
-  };
 
   const handleFormSubmit = async (data: any) => {
     try {
@@ -382,22 +158,6 @@ export function ModalProduto({
     }
   };
 
-  const getValidationIcon = (state: { valid: boolean; loading: boolean }) => {
-    if (state.loading) {
-      return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
-    }
-    if (state.valid) {
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
-    }
-    return <XCircle className="h-4 w-4 text-red-500" />;
-  };
-
-  const getValidationMessage = (state: { valid: boolean; loading: boolean; message?: string; descricao?: string }) => {
-    if (state.loading) return "Validando...";
-    if (state.valid && state.descricao) return state.descricao;
-    if (state.message) return state.message;
-    return "";
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -610,27 +370,27 @@ export function ModalProduto({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* NCM */}
               <div className="space-y-2">
-                <Label htmlFor="ncm">NCM *</Label>
-                <div className="relative">
-                  <Input
-                    id="ncm"
-                    {...register("ncm")}
-                    placeholder="Ex: 12345678"
-                    maxLength={8}
-                    className="pr-10"
-                  />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    {getValidationIcon(validationState.ncm)}
-                  </div>
-                </div>
-                {validationState.ncm.message && (
-                  <p className={`text-sm flex items-center gap-1 ${
-                    validationState.ncm.valid ? 'text-green-600' : 'text-red-500'
-                  }`}>
-                    <Info className="h-3 w-3" />
-                    {getValidationMessage(validationState.ncm)}
-                  </p>
-                )}
+                <SeletorNCM
+                  value={watch("ncm")}
+                  onChange={(ncmData) => {
+                    if (ncmData) {
+                      setValue("ncm", ncmData.codigo);
+                      setValidationState(prev => ({
+                        ...prev,
+                        ncm: { valid: true, loading: false, message: "NCM válido", descricao: ncmData.descricao_completa }
+                      }));
+                      clearErrors("ncm");
+                    } else {
+                      setValue("ncm", "");
+                      setValidationState(prev => ({
+                        ...prev,
+                        ncm: { valid: false, loading: false, message: "NCM não selecionado" }
+                      }));
+                    }
+                  }}
+                  placeholder="Digite o NCM ou descrição..."
+                  className="w-full"
+                />
                 {errors.ncm && (
                   <p className="text-sm text-red-500">{errors.ncm.message}</p>
                 )}
@@ -638,27 +398,29 @@ export function ModalProduto({
 
               {/* CFOP Saída */}
               <div className="space-y-2">
-                <Label htmlFor="cfop_saida">CFOP Saída *</Label>
-                <div className="relative">
-                  <Input
-                    id="cfop_saida"
-                    {...register("cfop_saida")}
-                    placeholder="Ex: 5102"
-                    maxLength={4}
-                    className="pr-10"
-                  />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    {getValidationIcon(validationState.cfopSaida)}
-                  </div>
-                </div>
-                {validationState.cfopSaida.message && (
-                  <p className={`text-sm flex items-center gap-1 ${
-                    validationState.cfopSaida.valid ? 'text-green-600' : 'text-red-500'
-                  }`}>
-                    <Info className="h-3 w-3" />
-                    {getValidationMessage(validationState.cfopSaida)}
-                  </p>
-                )}
+                <SeletorCFOP
+                  value={watch("cfop_saida")}
+                  onChange={(cfopData) => {
+                    if (cfopData) {
+                      setValue("cfop_saida", cfopData.codigo);
+                      setValidationState(prev => ({
+                        ...prev,
+                        cfopSaida: { valid: true, loading: false, message: "CFOP válido", descricao: cfopData.descricao }
+                      }));
+                      clearErrors("cfop_saida");
+                    } else {
+                      setValue("cfop_saida", "");
+                      setValidationState(prev => ({
+                        ...prev,
+                        cfopSaida: { valid: false, loading: false, message: "CFOP não selecionado" }
+                      }));
+                    }
+                  }}
+                  placeholder="Digite o CFOP de saída..."
+                  tipo="SAIDA"
+                  showTipoFilter={false}
+                  className="w-full"
+                />
                 {errors.cfop_saida && (
                   <p className="text-sm text-red-500">{errors.cfop_saida.message}</p>
                 )}
@@ -666,27 +428,29 @@ export function ModalProduto({
 
               {/* CFOP Entrada */}
               <div className="space-y-2">
-                <Label htmlFor="cfop_entrada">CFOP Entrada *</Label>
-                <div className="relative">
-                  <Input
-                    id="cfop_entrada"
-                    {...register("cfop_entrada")}
-                    placeholder="Ex: 1102"
-                    maxLength={4}
-                    className="pr-10"
-                  />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    {getValidationIcon(validationState.cfopEntrada)}
-                  </div>
-                </div>
-                {validationState.cfopEntrada.message && (
-                  <p className={`text-sm flex items-center gap-1 ${
-                    validationState.cfopEntrada.valid ? 'text-green-600' : 'text-red-500'
-                  }`}>
-                    <Info className="h-3 w-3" />
-                    {getValidationMessage(validationState.cfopEntrada)}
-                  </p>
-                )}
+                <SeletorCFOP
+                  value={watch("cfop_entrada")}
+                  onChange={(cfopData) => {
+                    if (cfopData) {
+                      setValue("cfop_entrada", cfopData.codigo);
+                      setValidationState(prev => ({
+                        ...prev,
+                        cfopEntrada: { valid: true, loading: false, message: "CFOP válido", descricao: cfopData.descricao }
+                      }));
+                      clearErrors("cfop_entrada");
+                    } else {
+                      setValue("cfop_entrada", "");
+                      setValidationState(prev => ({
+                        ...prev,
+                        cfopEntrada: { valid: false, loading: false, message: "CFOP não selecionado" }
+                      }));
+                    }
+                  }}
+                  placeholder="Digite o CFOP de entrada..."
+                  tipo="ENTRADA"
+                  showTipoFilter={false}
+                  className="w-full"
+                />
                 {errors.cfop_entrada && (
                   <p className="text-sm text-red-500">{errors.cfop_entrada.message}</p>
                 )}
@@ -780,25 +544,18 @@ export function ModalProduto({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* CST ICMS */}
               <div className="space-y-2">
-                <Label htmlFor="cst_icms">CST ICMS</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="cst_icms"
-                    {...register("cst_icms")}
-                    placeholder="Ex: 00"
-                    maxLength={2}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => buscarCSTs('ICMS')}
-                    className="px-3"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
+                <SeletorCST
+                  value={watch("cst_icms")}
+                  onChange={(cstData) => {
+                    if (cstData) {
+                      setValue("cst_icms", cstData.codigo);
+                    } else {
+                      setValue("cst_icms", "");
+                    }
+                  }}
+                  tipo="ICMS"
+                  className="w-full"
+                />
                 {errors.cst_icms && (
                   <p className="text-sm text-red-500">{errors.cst_icms.message}</p>
                 )}
@@ -806,25 +563,18 @@ export function ModalProduto({
 
               {/* CST IPI */}
               <div className="space-y-2">
-                <Label htmlFor="cst_ipi">CST IPI</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="cst_ipi"
-                    {...register("cst_ipi")}
-                    placeholder="Ex: 00"
-                    maxLength={2}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => buscarCSTs('IPI')}
-                    className="px-3"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
+                <SeletorCST
+                  value={watch("cst_ipi")}
+                  onChange={(cstData) => {
+                    if (cstData) {
+                      setValue("cst_ipi", cstData.codigo);
+                    } else {
+                      setValue("cst_ipi", "");
+                    }
+                  }}
+                  tipo="IPI"
+                  className="w-full"
+                />
                 {errors.cst_ipi && (
                   <p className="text-sm text-red-500">{errors.cst_ipi.message}</p>
                 )}
@@ -832,25 +582,18 @@ export function ModalProduto({
 
               {/* CST PIS */}
               <div className="space-y-2">
-                <Label htmlFor="cst_pis">CST PIS</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="cst_pis"
-                    {...register("cst_pis")}
-                    placeholder="Ex: 01"
-                    maxLength={2}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => buscarCSTs('PIS')}
-                    className="px-3"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
+                <SeletorCST
+                  value={watch("cst_pis")}
+                  onChange={(cstData) => {
+                    if (cstData) {
+                      setValue("cst_pis", cstData.codigo);
+                    } else {
+                      setValue("cst_pis", "");
+                    }
+                  }}
+                  tipo="PIS"
+                  className="w-full"
+                />
                 {errors.cst_pis && (
                   <p className="text-sm text-red-500">{errors.cst_pis.message}</p>
                 )}
@@ -858,25 +601,18 @@ export function ModalProduto({
 
               {/* CST COFINS */}
               <div className="space-y-2">
-                <Label htmlFor="cst_cofins">CST COFINS</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="cst_cofins"
-                    {...register("cst_cofins")}
-                    placeholder="Ex: 01"
-                    maxLength={2}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => buscarCSTs('COFINS')}
-                    className="px-3"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
+                <SeletorCST
+                  value={watch("cst_cofins")}
+                  onChange={(cstData) => {
+                    if (cstData) {
+                      setValue("cst_cofins", cstData.codigo);
+                    } else {
+                      setValue("cst_cofins", "");
+                    }
+                  }}
+                  tipo="COFINS"
+                  className="w-full"
+                />
                 {errors.cst_cofins && (
                   <p className="text-sm text-red-500">{errors.cst_cofins.message}</p>
                 )}
@@ -929,69 +665,6 @@ export function ModalProduto({
         </form>
       </DialogContent>
 
-      {/* Modal de Seleção de CSTs */}
-      {showCstResults && (
-        <Dialog open={showCstResults} onOpenChange={setShowCstResults}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                Selecionar CST {currentCstType}
-              </DialogTitle>
-              <DialogDescription>
-                Escolha o código de situação tributária para {currentCstType}
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {cstResults.map((cst) => (
-                <div
-                  key={`${cst.tipo}-${cst.codigo}`}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
-                  onClick={() => selecionarCST(cst)}
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-semibold text-[var(--cor-primaria)]">
-                        {cst.codigo}
-                      </span>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                        {cst.tipo}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {cst.descricao}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selecionarCST(cst);
-                    }}
-                  >
-                    Selecionar
-                  </Button>
-                </div>
-              ))}
-            </div>
-            
-            <div className="flex justify-end pt-4 border-t">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowCstResults(false);
-                  setCurrentCstType(null);
-                }}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </Dialog>
   );
 }
