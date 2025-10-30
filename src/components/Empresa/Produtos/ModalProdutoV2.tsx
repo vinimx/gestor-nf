@@ -38,6 +38,8 @@ interface ModalProdutoProps {
   produto?: Produto;
   onSuccess: () => void;
   onSubmit: (data: ProdutoCreate | ProdutoUpdate) => Promise<void>;
+  empresaId?: string;
+  regimeTributario?: 'SIMPLES' | 'PRESUMIDO' | 'REAL';
 }
 
 export function ModalProdutoV2({
@@ -46,6 +48,8 @@ export function ModalProdutoV2({
   produto,
   onSuccess,
   onSubmit,
+  empresaId,
+  regimeTributario,
 }: ModalProdutoProps) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("basico");
@@ -80,6 +84,7 @@ export function ModalProdutoV2({
     defaultValues: {
       tipo: "PRODUTO" as const,
       unidade: "UN" as const,
+      quantidade: 0,
       ativo: true,
       aliquota_icms: 0,
       aliquota_ipi: 0,
@@ -106,6 +111,7 @@ export function ModalProdutoV2({
           ...produto,
           tipo: produto.tipo || "PRODUTO",
           unidade: produto.unidade || "UN",
+          quantidade: (produto as any).quantidade ?? 0,
           ativo: produto.ativo ?? true,
           aliquota_icms: produto.aliquota_icms || 0,
           aliquota_ipi: produto.aliquota_ipi || 0,
@@ -124,6 +130,7 @@ export function ModalProdutoV2({
         reset({
           tipo: "PRODUTO",
           unidade: "UN",
+          quantidade: 0,
           ativo: true,
           aliquota_icms: 0,
           aliquota_ipi: 0,
@@ -251,7 +258,7 @@ export function ModalProdutoV2({
       watchedValues.ncm &&
       watchedValues.cfop_saida &&
       watchedValues.cfop_entrada &&
-      watchedValues.preco_venda > 0
+      Number(watchedValues.preco_venda) > 0
     );
   };
 
@@ -321,34 +328,71 @@ export function ModalProdutoV2({
 
                 <div>
                   <Label htmlFor="tipo">Tipo</Label>
-                  <Select value={watchedValues.tipo} onValueChange={(value) => setValue("tipo", value)}>
-                    <SelectTrigger>
-                      <SelectValue />
+                  <Select value={watchedValues.tipo} onValueChange={(value: "PRODUTO" | "SERVICO") => setValue("tipo", value)}>
+                    <SelectTrigger className="bg-white text-[var(--foreground)] border border-[var(--cor-primaria)]/30 hover:border-[var(--cor-primaria)]/50 focus:ring-2 focus:ring-[var(--cor-primaria)]/30">
+                      <SelectValue placeholder="Selecione o tipo" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {TIPOS_PRODUTO.map((tipo) => (
-                        <SelectItem key={tipo.value} value={tipo.value}>
-                          {tipo.label}
-                        </SelectItem>
-                      ))}
+                    <SelectContent className="bg-white text-[var(--foreground)] shadow-lg border border-gray-200">
+                      <SelectItem value="PRODUTO">
+                        <div className="flex items-center space-x-2">
+                          <Package className="h-4 w-4 text-blue-600" />
+                          <span>Produto</span>
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                            Estoque
+                          </span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="SERVICO">
+                        <div className="flex items-center space-x-2">
+                          <Settings className="h-4 w-4 text-purple-600" />
+                          <span>Serviço</span>
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                            Sem estoque
+                          </span>
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
+                  <div className="mt-2">
+                    {watchedValues.tipo === 'PRODUTO' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                        <Package className="h-3 w-3 mr-1" /> Produto
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
+                        <Settings className="h-3 w-3 mr-1" /> Serviço
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div>
                   <Label htmlFor="unidade">Unidade</Label>
-                  <Select value={watchedValues.unidade} onValueChange={(value) => setValue("unidade", value)}>
-                    <SelectTrigger>
-                      <SelectValue />
+                  <Select value={watchedValues.unidade} onValueChange={(value: "UN" | "KG" | "L" | "M" | "M2" | "M3" | "PC" | "CX" | "DZ") => setValue("unidade", value)}>
+                    <SelectTrigger className="bg-white text-[var(--foreground)] border border-[var(--cor-primaria)]/30 hover:border-[var(--cor-primaria)]/50 focus:ring-2 focus:ring-[var(--cor-primaria)]/30">
+                      <SelectValue placeholder="Selecione a unidade" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-white text-[var(--foreground)] shadow-lg border border-gray-200">
                       {UNIDADES_MEDIDA.map((unidade) => (
                         <SelectItem key={unidade.value} value={unidade.value}>
-                          {unidade.label}
+                          <div className="flex items-center space-x-2">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                              {unidade.value}
+                            </span>
+                            <span className="truncate">{unidade.label}</span>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="mt-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-700">
+                      {UNIDADES_MEDIDA.find(u => u.value === watchedValues.unidade)?.value}
+                    </span>
+                    <span className="ml-2 text-xs text-gray-500">
+                      {UNIDADES_MEDIDA.find(u => u.value === watchedValues.unidade)?.label}
+                    </span>
+                  </div>
                 </div>
 
                 <div>
@@ -375,6 +419,20 @@ export function ModalProdutoV2({
                     placeholder="0,00"
                   />
                 </div>
+
+              <div>
+                <Label htmlFor="quantidade">Quantidade</Label>
+                <Input
+                  id="quantidade"
+                  type="number"
+                  step="0.0001"
+                  {...register("quantidade", { valueAsNumber: true })}
+                  placeholder="0"
+                />
+                {errors as any && (errors as any).quantidade && (
+                  <p className="text-sm text-red-600 mt-1">{(errors as any).quantidade.message as string}</p>
+                )}
+              </div>
               </div>
 
               <div>
@@ -390,27 +448,41 @@ export function ModalProdutoV2({
               <div>
                 <Label htmlFor="categoria_id">Categoria</Label>
                 <Select 
-                  value={watchedValues.categoria_id || ""} 
+                  value={watchedValues.categoria_id ?? undefined} 
                   onValueChange={(value) => setValue("categoria_id", value || undefined)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-white text-[var(--foreground)] border border-[var(--cor-primaria)]/30 hover:border-[var(--cor-primaria)]/50 focus:ring-2 focus:ring-[var(--cor-primaria)]/30">
                     <SelectValue placeholder="Selecione uma categoria" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-white text-[var(--foreground)] shadow-lg border border-gray-200">
                     {categoriasLoading ? (
-                      <SelectItem value="" disabled>
-                        <LoadingSpinner size="sm" />
-                        <span className="ml-2">Carregando...</span>
+                      <SelectItem value="loading" disabled>
+                        <div className="flex items-center">
+                          <LoadingSpinner size="sm" />
+                          <span className="ml-2">Carregando...</span>
+                        </div>
                       </SelectItem>
                     ) : (
                       categorias.map((categoria) => (
                         <SelectItem key={categoria.id} value={categoria.id}>
-                          {categoria.nome}
+                          <div className="flex items-center space-x-2">
+                            <Package className="h-4 w-4 text-gray-500" />
+                            <span className="truncate">{categoria.nome}</span>
+                          </div>
                         </SelectItem>
                       ))
                     )}
                   </SelectContent>
                 </Select>
+                {watchedValues.categoria_id && (
+                  <div className="mt-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                      <Package className="h-3 w-3 mr-1" />
+                      {categorias.find(c => c.id === watchedValues.categoria_id)?.nome || 'Categoria selecionada'}
+                    </span>
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-gray-500">Use categorias para aplicar padrões fiscais e facilitar o cadastro.</p>
               </div>
             </TabsContent>
 
@@ -423,6 +495,7 @@ export function ModalProdutoV2({
                     value={watchedValues.ncm || ""}
                     onChange={handleNCMChange}
                     placeholder="Digite o código NCM..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
 
                   <SeletorCFOP
@@ -430,6 +503,7 @@ export function ModalProdutoV2({
                     onChange={handleCFOPSaidaChange}
                     tipo="SAIDA"
                     placeholder="CFOP de Saída..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
 
                   <SeletorCFOP
@@ -437,6 +511,7 @@ export function ModalProdutoV2({
                     onChange={handleCFOPEntradaChange}
                     tipo="ENTRADA"
                     placeholder="CFOP de Entrada..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
                 </div>
 
@@ -447,6 +522,8 @@ export function ModalProdutoV2({
                     onChange={handleCSTICMSChange}
                     tipo="ICMS"
                     placeholder="CST ICMS..."
+                  regime={regimeTributario}
+                  empresaId={empresaId || produto?.empresa_id}
                   />
 
                   <SeletorCST
@@ -454,6 +531,7 @@ export function ModalProdutoV2({
                     onChange={handleCSTIPIChange}
                     tipo="IPI"
                     placeholder="CST IPI..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
 
                   <SeletorCST
@@ -461,6 +539,7 @@ export function ModalProdutoV2({
                     onChange={handleCSTPISChange}
                     tipo="PIS"
                     placeholder="CST PIS..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
 
                   <SeletorCST
@@ -468,6 +547,7 @@ export function ModalProdutoV2({
                     onChange={handleCSTCOFINSChange}
                     tipo="COFINS"
                     placeholder="CST COFINS..."
+                  empresaId={empresaId || produto?.empresa_id}
                   />
                 </div>
               </div>
@@ -523,9 +603,18 @@ export function ModalProdutoV2({
             {/* Aba Cálculos */}
             <TabsContent value="calculos">
               <CalculadoraImpostos
-                produto={watchedValues}
-                quantidade={1}
-                valorUnitario={watchedValues.preco_venda}
+                produto={{
+                  ...watchedValues,
+                  preco_venda: Number(watchedValues.preco_venda),
+                  custo: watchedValues.custo ? Number(watchedValues.custo) : undefined,
+                  aliquota_icms: Number(watchedValues.aliquota_icms),
+                  aliquota_ipi: watchedValues.aliquota_ipi ? Number(watchedValues.aliquota_ipi) : undefined,
+                  aliquota_pis: watchedValues.aliquota_pis ? Number(watchedValues.aliquota_pis) : undefined,
+                  aliquota_cofins: watchedValues.aliquota_cofins ? Number(watchedValues.aliquota_cofins) : undefined,
+                  icms_reducao_base_calculo: watchedValues.icms_reducao_base_calculo ? Number(watchedValues.icms_reducao_base_calculo) : undefined,
+                }}
+                quantidade={Number((watchedValues as any).quantidade || 1)}
+                valorUnitario={Number(watchedValues.preco_venda)}
                 onCalculationChange={handleCalculationChange}
               />
             </TabsContent>
@@ -533,7 +622,16 @@ export function ModalProdutoV2({
             {/* Aba Validação */}
             <TabsContent value="validacao">
               <ValidadorFiscal
-                produto={watchedValues}
+                produto={{
+                  ...watchedValues,
+                  preco_venda: Number(watchedValues.preco_venda),
+                  custo: watchedValues.custo ? Number(watchedValues.custo) : undefined,
+                  aliquota_icms: Number(watchedValues.aliquota_icms),
+                  aliquota_ipi: watchedValues.aliquota_ipi ? Number(watchedValues.aliquota_ipi) : undefined,
+                  aliquota_pis: watchedValues.aliquota_pis ? Number(watchedValues.aliquota_pis) : undefined,
+                  aliquota_cofins: watchedValues.aliquota_cofins ? Number(watchedValues.aliquota_cofins) : undefined,
+                  icms_reducao_base_calculo: watchedValues.icms_reducao_base_calculo ? Number(watchedValues.icms_reducao_base_calculo) : undefined,
+                }}
                 onValidationChange={handleValidationChange}
               />
             </TabsContent>

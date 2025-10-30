@@ -24,10 +24,10 @@ export const produtoSchema = z.object({
     .max(255, 'Nome deve ter no máximo 255 caracteres'),
   descricao: z.string().optional(),
   tipo: z.enum(['PRODUTO', 'SERVICO'], {
-    errorMap: () => ({ message: 'Tipo deve ser PRODUTO ou SERVICO' })
+    message: 'Tipo deve ser PRODUTO ou SERVICO'
   }),
   unidade: z.enum(['UN', 'KG', 'L', 'M', 'M2', 'M3', 'PC', 'CX', 'DZ'], {
-    errorMap: () => ({ message: 'Unidade inválida' })
+    message: 'Unidade inválida'
   }),
   preco_venda: z.coerce.number()
     .min(0, 'Preço de venda deve ser positivo')
@@ -36,6 +36,10 @@ export const produtoSchema = z.object({
     .min(0, 'Custo deve ser positivo')
     .max(999999999.99, 'Custo muito alto')
     .optional(),
+  quantidade: z.coerce.number()
+    .min(0, 'Quantidade deve ser positiva')
+    .max(999999999.99, 'Quantidade muito alta')
+    .default(0),
   
   // Dados fiscais obrigatórios
   ncm: z.string()
@@ -61,7 +65,7 @@ export const produtoSchema = z.object({
   
   // Configurações ICMS
   icms_situacao_tributaria: z.string()
-    .length(2, 'Situação tributária ICMS deve ter 2 dígitos')
+    .regex(/^\d{2,3}$/,'Situação tributária ICMS deve ter 2 ou 3 dígitos')
     .default('00'),
   cst_icms: z.string()
     .regex(/^\d{2}$/, 'CST ICMS deve ter 2 dígitos')
@@ -142,6 +146,11 @@ export const focusProdutoSchema = z.object({
   pis_aliquota_porcentual: z.coerce.number().min(0).max(100).optional(),
   cofins_situacao_tributaria: z.string().length(2).optional(),
   cofins_aliquota_porcentual: z.coerce.number().min(0).max(100).optional(),
+  // Campos adicionais para compatibilidade com FocusProdutoData
+  ncm: z.string().regex(/^\d{8}$/, 'NCM deve ter 8 dígitos'),
+  cfop_saida: z.string().regex(/^\d{4}$/, 'CFOP de saída deve ter 4 dígitos'),
+  cfop_entrada: z.string().regex(/^\d{4}$/, 'CFOP de entrada deve ter 4 dígitos'),
+  aliquota_icms: z.coerce.number().min(0).max(100),
 });
 
 // Função para converter produto para formato FOCUS NFE
@@ -167,6 +176,11 @@ export function produtoToFocusFormat(produto: any): z.infer<typeof focusProdutoS
     pis_aliquota_porcentual: produto.aliquota_pis || 0,
     cofins_situacao_tributaria: produto.cofins_situacao_tributaria,
     cofins_aliquota_porcentual: produto.aliquota_cofins || 0,
+    // Campos adicionais para compatibilidade com FocusProdutoData
+    ncm: produto.ncm,
+    cfop_saida: produto.cfop_saida,
+    cfop_entrada: produto.cfop_entrada,
+    aliquota_icms: produto.aliquota_icms,
   };
 }
 

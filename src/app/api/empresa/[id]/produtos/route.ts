@@ -87,7 +87,7 @@ export async function GET(
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Parâmetros inválidos', details: error.errors },
+        { error: 'Parâmetros inválidos', details: error.issues },
         { status: 400 }
       );
     }
@@ -153,7 +153,7 @@ export async function POST(
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.errors },
+        { error: 'Dados inválidos', details: error.issues },
         { status: 400 }
       );
     }

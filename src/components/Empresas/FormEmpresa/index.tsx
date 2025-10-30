@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { ZodError } from "zod";
 import { CamposEndereco } from "./CamposEndereco";
+import { ConfiguracaoFocusNfe } from "../ConfiguracaoFocusNfe";
 
 interface FormEmpresaProps {
   empresa?: Empresa | null;
@@ -40,6 +41,10 @@ export function FormEmpresa({ empresa, onSubmit, onCancel }: FormEmpresaProps) {
       cidade: empresa?.endereco?.cidade || "",
       uf: empresa?.endereco?.uf || "",
     },
+    // Configurações FOCUS NFE
+    focus_nfe_token: empresa?.focus_nfe_token || "",
+    focus_nfe_environment: empresa?.focus_nfe_environment || "homologacao" as 'homologacao' | 'producao',
+    focus_nfe_ativo: empresa?.focus_nfe_ativo || false,
   });
 
   const handleChange = (field: string, value: string | boolean) => {
@@ -142,6 +147,9 @@ export function FormEmpresa({ empresa, onSubmit, onCancel }: FormEmpresaProps) {
             cidade: "",
             uf: "",
           },
+          focus_nfe_token: "",
+          focus_nfe_environment: "homologacao",
+          focus_nfe_ativo: false,
         });
       }
     } catch (error) {
@@ -281,6 +289,33 @@ export function FormEmpresa({ empresa, onSubmit, onCancel }: FormEmpresaProps) {
             acc[field] = errors[key];
             return acc;
           }, {} as Record<string, string>)}
+      />
+
+      {/* Configuração FOCUS NFE */}
+      <ConfiguracaoFocusNfe
+        empresaId={empresa?.id}
+        initialData={{
+          focus_nfe_token: formData.focus_nfe_token,
+          focus_nfe_environment: formData.focus_nfe_environment,
+          focus_nfe_ativo: formData.focus_nfe_ativo,
+        }}
+        onSave={async (focusData) => {
+          // Atualiza o estado local
+          setFormData(prev => ({
+            ...prev,
+            focus_nfe_token: focusData.focus_nfe_token,
+            focus_nfe_environment: focusData.focus_nfe_environment,
+            focus_nfe_ativo: focusData.focus_nfe_ativo,
+          }));
+          
+          // Salva via API
+          await onSubmit({
+            focus_nfe_token: focusData.focus_nfe_token,
+            focus_nfe_environment: focusData.focus_nfe_environment,
+            focus_nfe_ativo: focusData.focus_nfe_ativo,
+          });
+        }}
+        disabled={loading}
       />
 
       {/* Ações */}

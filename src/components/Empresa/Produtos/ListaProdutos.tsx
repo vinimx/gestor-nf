@@ -271,7 +271,6 @@ export function ListaProdutos({
           description="Comece criando seu primeiro produto."
           action={{
             icon: Plus,
-            className: "bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]",
             label: "Novo Produto",
             onClick: onNovoProduto,
           }}

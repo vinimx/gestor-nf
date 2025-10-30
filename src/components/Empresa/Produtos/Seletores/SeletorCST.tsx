@@ -64,7 +64,7 @@ export function SeletorCST({
       if (cst) {
         setSelectedCST(cst);
         setIsValid(true);
-        setValidationMessage(cst.descricao);
+        setValidationMessage("");
         onValidate?.(true);
       } else {
         setIsValid(false);
@@ -98,7 +98,9 @@ export function SeletorCST({
   const loadCSTs = async () => {
     try {
       const results = await buscarCSTs(tipo);
-      setCstOptions(results);
+      // Deduplicar por código
+      const unique = Array.from(new Map(results.map((x) => [x.codigo, x])).values());
+      setCstOptions(unique);
     } catch (error) {
       console.error("Erro ao carregar CSTs:", error);
     }
@@ -110,7 +112,7 @@ export function SeletorCST({
     onChange(cst);
     setShowResults(false);
     setIsValid(true);
-    setValidationMessage(cst.descricao);
+    setValidationMessage("");
     onValidate?.(true);
   };
 
@@ -184,10 +186,10 @@ export function SeletorCST({
 
   const getTipoColor = (tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS') => {
     const colors = {
-      ICMS: 'text-blue-600 bg-blue-50 border-blue-200',
-      IPI: 'text-purple-600 bg-purple-50 border-purple-200',
-      PIS: 'text-orange-600 bg-orange-50 border-orange-200',
-      COFINS: 'text-green-600 bg-green-50 border-green-200'
+      ICMS: 'text-blue-600 bg-blue-50',
+      IPI: 'text-purple-600 bg-purple-50',
+      PIS: 'text-orange-600 bg-orange-50',
+      COFINS: 'text-green-600 bg-green-50'
     };
     return colors[tipo];
   };
@@ -206,11 +208,7 @@ export function SeletorCST({
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between">
         <Label htmlFor="cst">CST {getTipoLabel(tipo)}</Label>
-        <div className="flex items-center space-x-2">
-          <span className={cn("px-2 py-1 rounded text-xs border", getTipoColor(tipo))}>
-            {getTipoLabel(tipo)}
-          </span>
-        </div>
+        <div className="flex items-center space-x-2" />
       </div>
       
       <div className="relative">
@@ -279,7 +277,7 @@ export function SeletorCST({
       </div>
 
       {/* Mensagem de validação */}
-      {validationMessage && (
+      {!isValid && validationMessage && (
         <div className={cn(
           "text-sm",
           isValid ? "text-green-600" : "text-red-600"
@@ -304,11 +302,7 @@ export function SeletorCST({
               <div className="font-medium text-green-800">
                 {selectedCST.codigo} - {selectedCST.descricao}
               </div>
-              <div className="text-sm text-green-600 mt-1">
-                <span className={cn("px-2 py-1 rounded text-xs border", getTipoColor(selectedCST.tipo))}>
-                  {getTipoLabel(selectedCST.tipo)}
-                </span>
-              </div>
+              <div className="text-sm text-green-600 mt-1">CST {getTipoLabel(selectedCST.tipo)}</div>
             </div>
             <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
           </div>

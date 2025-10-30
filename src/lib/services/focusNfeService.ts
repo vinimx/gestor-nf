@@ -48,7 +48,7 @@ export class FocusNfeService {
    * @param cnpj CNPJ sem formatação (apenas números)
    * @returns Dados do CNPJ ou erro
    */
-  async consultarCnpj(cnpj: string): Promise<{
+  async consultarCnpj(cnpj: string, empresaId?: string): Promise<{
     success: boolean;
     data?: FocusCnpjResponse;
     error?: FocusCnpjError;
@@ -65,28 +65,35 @@ export class FocusNfeService {
           }
         };
       }
+      const params = new URLSearchParams();
+      params.set('cnpj', cnpjLimpo);
+      if (empresaId) params.set('empresa_id', empresaId);
+      const response = await fetch(`/api/focus-nfe/cnpj?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
 
-          // Usar endpoint da API interna para evitar CORS
-          const response = await fetch('/api/focus-nfe/mock-data', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
+      let data: any;
+      try { data = await response.json(); } catch { data = null; }
 
-      const data = await response.json();
+      if (!response.ok || !data) {
+        return {
+          success: false,
+          error: data?.error || { codigo: 'ERRO_API', mensagem: 'Falha na consulta CNPJ' }
+        };
+      }
 
       if (data.success) {
         return {
           success: true,
           data: data.data as FocusCnpjResponse
         };
-      } else {
-        return {
-          success: false,
-          error: data.error
-        };
       }
+
+      return {
+        success: false,
+        error: data.error
+      };
     } catch (error) {
       console.error('Erro na consulta FOCUS NFE:', error);
       return {
@@ -119,7 +126,7 @@ export class FocusNfeService {
    * @param cnpj CNPJ sem formatação
    * @returns Dados formatados para preenchimento de formulário
    */
-  async obterDadosCnpj(cnpj: string): Promise<{
+  async obterDadosCnpj(cnpj: string, empresaId?: string): Promise<{
     success: boolean;
     data?: {
       razao_social: string;
@@ -142,7 +149,7 @@ export class FocusNfeService {
     };
     error?: FocusCnpjError;
   }> {
-    const resultado = await this.consultarCnpj(cnpj);
+    const resultado = await this.consultarCnpj(cnpj, empresaId);
     
     if (!resultado.success || !resultado.data) {
       return {

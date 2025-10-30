@@ -15,6 +15,14 @@ export interface Empresa {
   } | null;
   telefone?: string | null;
   email?: string | null;
+  
+  // Configurações FOCUS NFE
+  focus_nfe_token?: string | null;
+  focus_nfe_environment?: 'homologacao' | 'producao';
+  focus_nfe_ativo?: boolean;
+  focus_nfe_ultima_validacao?: string | null;
+  focus_nfe_erro_validacao?: string | null;
+  
   created_at?: string;
   updated_at?: string;
   ativo?: boolean;

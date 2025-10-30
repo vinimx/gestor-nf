@@ -22,7 +22,16 @@ export const clienteSchema = z.object({
 export const clienteQuerySchema = z.object({
   search: z.string().optional(),
   tipo: z.enum(['FISICA', 'JURIDICA']).optional(),
-  ativo: z.boolean().optional(),
+  // Converter strings "true"/"false" corretamente para boolean
+  ativo: z
+    .preprocess((v) => {
+      if (typeof v === 'string') {
+        if (v.toLowerCase() === 'true') return true;
+        if (v.toLowerCase() === 'false') return false;
+      }
+      return v;
+    }, z.boolean())
+    .optional(),
   limit: z.coerce.number().min(1).max(100).default(20),
   offset: z.coerce.number().min(0).default(0),
   sort: z.string().default('nome_razao_social'),

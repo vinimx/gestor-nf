@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+import { ConfiguracaoFocusNfe } from "../../Empresas/ConfiguracaoFocusNfe";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +81,10 @@ export default function PainelAdmin() {
     telefone: "",
     email: "",
     ativo: true,
+    // Configurações FOCUS NFE
+    focus_nfe_token: "",
+    focus_nfe_environment: "homologacao" as 'homologacao' | 'producao',
+    focus_nfe_ativo: false,
   });
 
   const {
@@ -111,6 +116,10 @@ export default function PainelAdmin() {
       telefone: "",
       email: "",
       ativo: true,
+      // Configurações FOCUS NFE
+      focus_nfe_token: "",
+      focus_nfe_environment: "homologacao" as 'homologacao' | 'producao',
+      focus_nfe_ativo: false,
     });
   };
 
@@ -179,6 +188,10 @@ export default function PainelAdmin() {
       telefone: empresa.telefone || "",
       email: empresa.email || "",
       ativo: empresa.ativo ?? true,
+      // Configurações FOCUS NFE
+      focus_nfe_token: empresa.focus_nfe_token || "",
+      focus_nfe_environment: empresa.focus_nfe_environment || "homologacao",
+      focus_nfe_ativo: empresa.focus_nfe_ativo || false,
     });
     setModalType("edit");
     setModalOpen(true);
@@ -602,6 +615,7 @@ export default function PainelAdmin() {
                     </div>
                   </div>
 
+
                   <div className="border-t pt-4">
                     <h3
                       className="text-lg font-medium mb-3"
@@ -772,6 +786,28 @@ export default function PainelAdmin() {
                         )}
                       </div>
                     </div>
+                  </div>
+
+                  {/* Configuração Token Sefaz */}
+                  <div className="border-t pt-6">
+                    <ConfiguracaoFocusNfe
+                      empresaId={selectedEmpresa?.id}
+                      initialData={{
+                        focus_nfe_token: formData.focus_nfe_token,
+                        focus_nfe_environment: formData.focus_nfe_environment,
+                        focus_nfe_ativo: formData.focus_nfe_ativo,
+                      }}
+                      onSave={async (focusData) => {
+                        // Atualiza o estado local
+                        setFormData(prev => ({
+                          ...prev,
+                          focus_nfe_token: focusData.focus_nfe_token,
+                          focus_nfe_environment: focusData.focus_nfe_environment,
+                          focus_nfe_ativo: focusData.focus_nfe_ativo,
+                        }));
+                      }}
+                      disabled={isSubmitting}
+                    />
                   </div>
                 </div>
               ) : (

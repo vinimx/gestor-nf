@@ -12,6 +12,7 @@ export interface Produto {
   unidade: 'UN' | 'KG' | 'L' | 'M' | 'M2' | 'M3' | 'PC' | 'CX' | 'DZ';
   preco_venda: number;
   custo?: number;
+  quantidade: number;
   
   // Dados fiscais obrigatórios
   ncm: string;
@@ -66,6 +67,7 @@ export interface ProdutoCreate {
   unidade: 'UN' | 'KG' | 'L' | 'M' | 'M2' | 'M3' | 'PC' | 'CX' | 'DZ';
   preco_venda: number;
   custo?: number;
+  quantidade?: number;
   ncm: string;
   cfop_saida: string;
   cfop_entrada: string;

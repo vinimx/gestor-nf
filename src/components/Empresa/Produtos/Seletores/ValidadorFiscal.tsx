@@ -45,9 +45,7 @@ export function ValidadorFiscal({
   const [lastValidation, setLastValidation] = useState<Date | null>(null);
   
   const { 
-    validarProduto, 
-    loadingValidation, 
-    errorValidation 
+    validarProduto
   } = useFocusNFE();
 
   // Validar automaticamente quando produto muda
@@ -122,34 +120,20 @@ export function ValidadorFiscal({
 
       const result = await validarProduto(focusProduto);
       
-      if (result.success) {
-        const validation: ValidationResult = {
-          valid: result.data?.valid || false,
-          errors: result.data?.errors || [],
-          warnings: result.data?.warnings || [],
-          suggestions: generateSuggestions(produto),
-          compatibility: {
-            ncm_cfop: validateNCMCFOPCompatibility(produto),
-            cfop_cst: validateCFOPCSTCompatibility(produto),
-            cst_ncm: validateCSTNCMCompatibility(produto),
-          },
-        };
+      const validation: ValidationResult = {
+        valid: result.valid,
+        errors: result.errors || [],
+        warnings: result.warnings || [],
+        suggestions: generateSuggestions(produto),
+        compatibility: {
+          ncm_cfop: validateNCMCFOPCompatibility(produto),
+          cfop_cst: validateCFOPCSTCompatibility(produto),
+          cst_ncm: validateCSTNCMCompatibility(produto),
+        },
+      };
         
-        setValidationResult(validation);
-        setLastValidation(new Date());
-      } else {
-        setValidationResult({
-          valid: false,
-          errors: [result.error || "Erro na validação"],
-          warnings: [],
-          suggestions: ["Verifique os dados do produto"],
-          compatibility: {
-            ncm_cfop: false,
-            cfop_cst: false,
-            cst_ncm: false,
-          },
-        });
-      }
+      setValidationResult(validation);
+      setLastValidation(new Date());
     } catch (error: any) {
       console.error("Erro ao validar produto:", error);
       setValidationResult({
@@ -219,11 +203,11 @@ export function ValidadorFiscal({
   };
 
   const getValidationIcon = () => {
-    if (isValidating || loadingValidation) {
+    if (isValidating) {
       return <LoadingSpinner size="sm" />;
     }
     
-    if (errorValidation) {
+    if (validationResult && !validationResult.valid) {
       return <AlertCircle className="h-5 w-5 text-yellow-500" />;
     }
     
@@ -239,8 +223,7 @@ export function ValidadorFiscal({
   };
 
   const getValidationColor = () => {
-    if (isValidating || loadingValidation) return "border-blue-300";
-    if (errorValidation) return "border-yellow-300";
+    if (isValidating) return "border-blue-300";
     if (validationResult) {
       return validationResult.valid ? "border-green-300" : "border-red-300";
     }
@@ -248,8 +231,7 @@ export function ValidadorFiscal({
   };
 
   const getValidationTitle = () => {
-    if (isValidating || loadingValidation) return "Validando...";
-    if (errorValidation) return "Erro na Validação";
+    if (isValidating) return "Validando...";
     if (validationResult) {
       return validationResult.valid ? "Validação Aprovada" : "Validação com Problemas";
     }
@@ -268,9 +250,9 @@ export function ValidadorFiscal({
             variant="outline"
             size="sm"
             onClick={validateProduct}
-            disabled={isValidating || loadingValidation || !hasRequiredFields(produto)}
+            disabled={isValidating || !hasRequiredFields(produto)}
           >
-            <RefreshCw className={cn("h-4 w-4", (isValidating || loadingValidation) && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4", isValidating && "animate-spin")} />
           </Button>
         </CardTitle>
       </CardHeader>
@@ -387,15 +369,6 @@ export function ValidadorFiscal({
           </div>
         )}
 
-        {/* Erro da API */}
-        {errorValidation && (
-          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-            <div className="flex items-center">
-              <AlertCircle className="h-4 w-4 text-yellow-500 mr-2" />
-              <span className="text-sm text-yellow-600">{errorValidation}</span>
-            </div>
-          </div>
-        )}
 
         {/* Última validação */}
         {lastValidation && (

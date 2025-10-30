@@ -26,6 +26,7 @@ interface SeletorCFOPProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  empresaId?: string;
 }
 
 export function SeletorCFOP({
@@ -37,6 +38,7 @@ export function SeletorCFOP({
   placeholder = "Digite o código CFOP...",
   disabled = false,
   className,
+  empresaId,
 }: SeletorCFOPProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
@@ -44,6 +46,7 @@ export function SeletorCFOP({
   const [isValid, setIsValid] = useState(false);
   const [validationMessage, setValidationMessage] = useState("");
   const [filtroTipo, setFiltroTipo] = useState<'ENTRADA' | 'SAIDA' | 'TODOS'>(tipo);
+  const [results, setResults] = useState<FocusCFOPData[]>([]);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -53,7 +56,7 @@ export function SeletorCFOP({
     consultarCFOP, 
     loadingCFOP, 
     errorCFOP 
-  } = useFocusNFE();
+  } = useFocusNFE(empresaId);
 
   // Debounce para busca
   useEffect(() => {
@@ -105,9 +108,24 @@ export function SeletorCFOP({
     if (searchTerm.length < 2) return;
     
     try {
-      const tipoFiltro = filtroTipo === 'TODOS' ? undefined : filtroTipo;
-      const results = await buscarCFOPs(searchTerm, tipoFiltro);
-      if (results.length > 0) {
+      const fetched = await buscarCFOPs({
+        descricao: searchTerm,
+        limit: 20
+      });
+      let filtered = fetched;
+      if (filtroTipo !== 'TODOS') {
+        filtered = fetched.filter((i) => i.tipo === filtroTipo);
+      }
+      if (filtered.length > 0) {
+        const ordered = [...filtered].sort((a, b) => {
+          const aStarts = a.codigo.startsWith(searchTerm) ? 1 : 0;
+          const bStarts = b.codigo.startsWith(searchTerm) ? 1 : 0;
+          if (aStarts !== bStarts) return bStarts - aStarts;
+          const aDesc = a.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0;
+          const bDesc = b.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0;
+          return bDesc - aDesc;
+        });
+        setResults(ordered);
         setShowResults(true);
       }
     } catch (error) {
@@ -128,7 +146,7 @@ export function SeletorCFOP({
       if (cfopData) {
         setSelectedCFOP(cfopData);
         setIsValid(true);
-        setValidationMessage(cfopData.descricao);
+        setValidationMessage("");
         onValidate?.(true);
       } else {
         setIsValid(false);
@@ -149,7 +167,7 @@ export function SeletorCFOP({
     onChange(cfop);
     setShowResults(false);
     setIsValid(true);
-    setValidationMessage(cfop.descricao);
+    setValidationMessage("");
     onValidate?.(true);
   };
 
@@ -245,7 +263,7 @@ export function SeletorCFOP({
             onChange={handleInputChange}
             onFocus={handleInputFocus}
             className={cn(
-              "pr-10",
+              "pr-10 bg-white text-[var(--foreground)] border border-[var(--cor-primaria)]/30 focus:ring-2 focus:ring-[var(--cor-primaria)]/30",
               getStatusColor()
             )}
             maxLength={4}
@@ -260,7 +278,7 @@ export function SeletorCFOP({
         {showResults && (
           <div
             ref={resultsRef}
-            className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto"
+            className="absolute z-50 w-full mt-1 bg-white text-[var(--foreground)] border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto"
           >
             {loadingCFOP ? (
               <div className="p-3 text-center">
@@ -269,29 +287,39 @@ export function SeletorCFOP({
               </div>
             ) : (
               <div className="py-1">
-                {searchTerm.length >= 2 && (
-                  <div
-                    className="px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50"
-                    onClick={() => {
-                      setSearchTerm("");
-                      setShowResults(false);
-                    }}
-                  >
-                    <Search className="inline h-4 w-4 mr-2" />
-                    Buscar por: "{searchTerm}"
-                    {filtroTipo !== 'TODOS' && (
-                      <span className={cn("ml-2 px-2 py-1 rounded text-xs", getTipoColor(filtroTipo))}>
-                        {getTipoLabel(filtroTipo)}
-                      </span>
-                    )}
+                {results.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-gray-500">
+                    Nenhum CFOP encontrado para "{searchTerm}"
                   </div>
                 )}
-                
-                {searchTerm.length >= 2 && (
-                  <div className="border-t border-gray-100">
-                    <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50">
-                      Resultados da busca
-                    </div>
+                {results.length > 0 && (
+                  <div className="divide-y divide-gray-100">
+                    {results.map((item) => (
+                      <div
+                        key={item.codigo}
+                        className="px-3 py-2 cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleCFOPSelect(item)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <div className="font-mono text-sm font-medium text-blue-600">
+                                {item.codigo}
+                              </div>
+                              <span className={cn("px-2 py-0.5 rounded text-xs", getTipoColor(item.tipo))}>
+                                {getTipoLabel(item.tipo)}
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-700 line-clamp-2">
+                              {item.descricao}
+                            </div>
+                          </div>
+                          {item.codigo === searchTerm && (
+                            <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -300,8 +328,11 @@ export function SeletorCFOP({
         )}
       </div>
 
+      {/* Ajuda contextual */}
+      <p className="text-xs text-gray-500">Digite 4 dígitos ou pesquise pela descrição. Use o filtro Entrada/Saída.</p>
+
       {/* Mensagem de validação */}
-      {validationMessage && (
+      {!isValid && validationMessage && (
         <div className={cn(
           "text-sm",
           isValid ? "text-green-600" : "text-red-600"

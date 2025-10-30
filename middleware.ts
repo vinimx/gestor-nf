@@ -49,6 +49,11 @@ export async function middleware(req: NextRequest) {
 
   const { pathname, search } = req.nextUrl
 
+  // Ignorar todas as rotas de API
+  if (pathname.startsWith('/api/')) {
+    return res
+  }
+
   // Debug: Logar informações de sessão em desenvolvimento
   if (process.env.NODE_ENV === 'development') {
     console.log('🔍 Middleware executado para:', pathname);
@@ -191,7 +196,7 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
 

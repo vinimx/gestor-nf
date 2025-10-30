@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getEmpresaFocusConfig } from '@/lib/services/empresaService';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,8 +9,26 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50'); // FOCUS NFE retorna 50 por padrão
     const offset = parseInt(searchParams.get('offset') || '0');
 
-    const apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN;
-    const environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    const empresaId = searchParams.get('empresa_id');
+    
+    // Buscar configuração FOCUS NFE da empresa
+    let apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN;
+    let environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    
+    if (empresaId) {
+      const empresaConfig = await getEmpresaFocusConfig(empresaId);
+      if (empresaConfig?.focus_nfe_token && empresaConfig.focus_nfe_ativo) {
+        apiToken = empresaConfig.focus_nfe_token;
+        environment = empresaConfig.focus_nfe_environment;
+        console.log(`Usando token FOCUS NFE da empresa ${empresaId} (${environment})`);
+      } else {
+        console.warn(`Empresa ${empresaId} não tem token FOCUS NFE configurado ou ativo`);
+        return NextResponse.json({
+          success: false,
+          error: 'FOCUS NFE desativado ou não configurado para esta empresa. Valide o token para usar a API.',
+        }, { status: 401 });
+      }
+    }
     
     // Se não há token, retornar dados locais
     if (!apiToken) {

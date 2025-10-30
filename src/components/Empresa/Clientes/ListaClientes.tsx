@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -36,6 +36,7 @@ interface ListaClientesProps {
   onPageChange: (offset: number) => void;
   onStatusChange: (status: "all" | "active" | "inactive") => void;
   onTipoChange: (tipo: "all" | "FISICA" | "JURIDICA") => void;
+  refreshSignal?: number; // usado para forçar recarga sem remontar
 }
 
 export function ListaClientes({
@@ -49,24 +50,50 @@ export function ListaClientes({
   onPageChange,
   onStatusChange,
   onTipoChange,
+  refreshSignal,
 }: ListaClientesProps) {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [loading, setLoading] = useState(true);
+  const getSignature = () => {
+    return `${empresaId}|${query.search || ''}|${query.tipo || ''}|${query.limit}|${query.offset}|${query.sort}|${query.order}|${refreshSignal ?? 0}`;
+  };
+
+  // Hidrata a partir do cache de sessão para evitar "refresh" visual ao trocar de aba/remount
+  const initialCache = (() => {
+    try {
+      const signature = getSignature();
+      const cacheKey = `clientes_cache_${signature}`;
+      const raw = typeof window !== 'undefined' ? sessionStorage.getItem(cacheKey) : null;
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached?.ts && Array.isArray(cached.data)) {
+          return cached;
+        }
+      }
+    } catch {}
+    return null;
+  })();
+
+  const [clientes, setClientes] = useState<Cliente[]>(initialCache?.data || []);
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState<string>(query.search || "");
+  const skipNextRefetchOnFocusRef = useRef(false);
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas para evitar refresh em troca de aba
+  const hasMountedRef = useRef(false);
   const [pagination, setPagination] = useState({
-    total: 0,
+    total: initialCache?.pagination?.total || 0,
     limit: query.limit,
     offset: query.offset,
-    hasMore: false,
-    totalPages: 0,
-    currentPage: 1,
+    hasMore: initialCache?.pagination?.hasMore || false,
+    totalPages: initialCache?.pagination?.totalPages || 0,
+    currentPage: initialCache?.pagination?.currentPage || 1,
   });
 
   const fetchClientes = async () => {
     if (!empresaId) return;
 
     try {
-      setLoading(true);
+      // Evita flicker: só mostra loading se não há dados
+      if (clientes.length === 0) setLoading(true);
       setError(null);
 
       // Obter token de autenticação
@@ -80,7 +107,6 @@ export function ListaClientes({
       const searchParams = new URLSearchParams();
       if (query.search) searchParams.set("search", query.search);
       if (query.tipo) searchParams.set("tipo", query.tipo);
-      if (query.ativo !== undefined) searchParams.set("ativo", query.ativo.toString());
       searchParams.set("limit", query.limit.toString());
       searchParams.set("offset", query.offset.toString());
       searchParams.set("sort", query.sort);
@@ -101,6 +127,18 @@ export function ListaClientes({
       const data = await response.json();
       setClientes(data.data);
       setPagination(data.pagination);
+
+      // Persistir no cache de sessão
+      try {
+        const signature = getSignature();
+        const cacheKey = `clientes_cache_${signature}`;
+        const payload = {
+          ts: Date.now(),
+          data: data.data,
+          pagination: data.pagination,
+        };
+        sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+      } catch {}
     } catch (err) {
       console.error('Erro ao buscar clientes:', err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar clientes');
@@ -109,9 +147,95 @@ export function ListaClientes({
     }
   };
 
+  // getSignature movido para o topo para uso no cache inicial
+
+  // Debounce da busca para evitar refresh a cada tecla
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchValue !== (query.search || "")) {
+        onSearchChange(searchValue);
+      }
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [searchValue]);
+
+  // Sincroniza valor local quando filtro externo mudar (ex.: limpar filtros)
+  useEffect(() => {
+    setSearchValue(query.search || "");
+  }, [query.search]);
+
+  // Carrega apenas uma vez (ou via botão Atualizar). Não reage a mudanças automáticas.
+  useEffect(() => {
+    // Se a aba foi ocultada anteriormente, marcamos para pular o próximo fetch ao voltar
+    try {
+      const signature = getSignature();
+      const skipKey = 'clientes_skip_on_visible';
+      const handleVisibility = () => {
+        try {
+          if (document.hidden) {
+            sessionStorage.setItem(skipKey, signature);
+          }
+        } catch {}
+      };
+      const handleBlur = () => {
+        try {
+          sessionStorage.setItem(skipKey, signature);
+        } catch {}
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('blur', handleBlur);
+      // Cleanup
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibility);
+        window.removeEventListener('blur', handleBlur);
+      };
+    } catch {}
+  }, []);
+
+  // Atualização automática somente para filtros: busca, tipo, ordenação e paginação
   useEffect(() => {
     fetchClientes();
-  }, [empresaId, query]);
+  }, [
+    query.search,
+    query.tipo,
+    query.sort,
+    query.order,
+    query.offset,
+  ]);
+
+  useEffect(() => {
+    // Primeiro tenta cache
+    try {
+      const signature = getSignature();
+      const skipKey = 'clientes_skip_on_visible';
+      // Se marcado para pular e temos cache, usa cache e não busca
+      const shouldSkip = sessionStorage.getItem(skipKey) === signature;
+      const cacheKey = `clientes_cache_${signature}`;
+      const raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached?.ts && Date.now() - cached.ts < CACHE_TTL_MS && Array.isArray(cached.data)) {
+          setClientes(cached.data);
+          if (cached.pagination) setPagination(cached.pagination);
+          setLoading(false);
+          if (shouldSkip) {
+            try { sessionStorage.removeItem(skipKey); } catch {}
+            return; // não buscar se voltamos de outra aba
+          }
+          return; // cache válido já exibido
+        }
+      }
+      if (shouldSkip) {
+        // Se pediu para pular mas não há cache válido, seguimos para buscar normalmente
+        try { sessionStorage.removeItem(skipKey); } catch {}
+      }
+    } catch {}
+
+    // Sem cache válido: faz apenas o primeiro fetch (não repetirá em troca de aba)
+    fetchClientes();
+  }, []);
+
+  // Não reagimos a focus/visibility (sem listeners aqui)
 
   const handleDelete = async (cliente: Cliente) => {
     if (window.confirm(`Tem certeza que deseja excluir o cliente "${cliente.nome_razao_social}"?`)) {
@@ -119,13 +243,7 @@ export function ListaClientes({
     }
   };
 
-  const getStatusBadge = (ativo: boolean) => {
-    return (
-      <Badge variant={ativo ? "default" : "secondary"}>
-        {ativo ? "Ativo" : "Inativo"}
-      </Badge>
-    );
-  };
+  // Badge de status removido
 
   const getTipoIcon = (tipo: string) => {
     return tipo === 'FISICA' ? (
@@ -166,17 +284,35 @@ export function ListaClientes({
             Lista de Clientes ({pagination.total})
           </h2>
         </div>
-        <Button
-          onClick={onNovaCliente}
-          className="flex items-center gap-2 bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]"
-          style={{
-            background: "var(--cor-primaria)",
-            color: "#fff",
-          }}
-        >
-          <Plus className="h-4 w-4" />
-          Novo Cliente
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={fetchClientes}
+            variant="outline"
+            className="flex items-center gap-2"
+            disabled={loading}
+            title="Atualizar lista (manual)"
+          >
+            {/* ícone de refresh simples usando SVG para evitar dependência */}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0114.13-3.36L23 10"></path>
+              <path d="M20.49 15a9 9 0 01-14.13 3.36L1 14"></path>
+            </svg>
+            {loading ? 'Atualizando...' : 'Atualizar'}
+          </Button>
+          <Button
+            onClick={onNovaCliente}
+            className="flex items-center gap-2 bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]"
+            style={{
+              background: "var(--cor-primaria)",
+              color: "#fff",
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Novo Cliente
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -187,8 +323,8 @@ export function ListaClientes({
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Buscar clientes..."
-              value={query.search || ""}
-              onChange={(e) => onSearchChange(e.target.value)}
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -204,16 +340,7 @@ export function ListaClientes({
                 <option value="JURIDICA">Pessoa Jurídica</option>
               </select>
 
-              {/* Status */}
-              <select
-                value={query.ativo === undefined ? "all" : query.ativo ? "active" : "inactive"}
-                onChange={(e) => onStatusChange(e.target.value as "all" | "active" | "inactive")}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="all">Todos os status</option>
-                <option value="active">Ativos</option>
-                <option value="inactive">Inativos</option>
-              </select>
+              {/* Status removido */}
 
               {/* Ordenação */}
               <select
@@ -239,37 +366,36 @@ export function ListaClientes({
           description="Comece criando seu primeiro cliente."
           action={{
             icon: Plus,
-            className: "bg-gradient-to-r from-[var(--cor-primaria)] to-[var(--anexo-1-hover)] hover:from-[var(--anexo-1-hover)] hover:to-[var(--cor-primaria)] text-white border-0 shadow-[var(--sombra-destaque)]",
             label: "Novo Cliente",
             onClick: onNovaCliente,
             }}
           />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
               {clientes.map((cliente) => (
-                <Card key={cliente.id} className="p-4 border-2 border-[var(--cor-primaria)]/10 hover:border-[var(--cor-primaria)]/30 hover:shadow-[var(--sombra-destaque)] transition-all duration-300">
-              <div className="space-y-4">
+                <Card key={cliente.id} className="p-4 sm:p-5 md:p-6 min-h-[180px] md:min-h-[200px] h-full border-2 border-[var(--cor-primaria)]/10 hover:border-[var(--cor-primaria)]/30 hover:shadow-[var(--sombra-destaque)] transition-all duration-300">
+              <div className="space-y-4 h-full flex flex-col">
                 {/* Header do Card */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">
                     {getTipoIcon(cliente.tipo)}
-                    <div>
-                      <h3 className="font-semibold text-gray-900 truncate">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-gray-900 break-words whitespace-normal">
                         {cliente.nome_razao_social}
                       </h3>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-500 truncate">
                         {getTipoLabel(cliente.tipo)}
                       </p>
                     </div>
                   </div>
-                  {getStatusBadge(cliente.ativo)}
+                  {/* Status removido do card */}
                 </div>
 
                 {/* Informações do Cliente */}
                 <div className="space-y-2">
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">CPF/CNPJ:</span>
-                    <span className="ml-2 text-gray-600">
+                    <span className="ml-2 text-gray-600 break-words whitespace-normal">
                       {maskCPFCNPJ(cliente.cpf_cnpj, cliente.tipo)}
                     </span>
                   </div>
@@ -277,27 +403,27 @@ export function ListaClientes({
                   {cliente.email && (
                     <div className="text-sm">
                       <span className="font-medium text-gray-700">Email:</span>
-                      <span className="ml-2 text-gray-600">{cliente.email}</span>
+                      <span className="ml-2 text-gray-600 break-words whitespace-normal">{cliente.email}</span>
                     </div>
                   )}
                   
                   {cliente.telefone && (
                     <div className="text-sm">
                       <span className="font-medium text-gray-700">Telefone:</span>
-                      <span className="ml-2 text-gray-600">{cliente.telefone}</span>
+                      <span className="ml-2 text-gray-600 break-words whitespace-normal">{cliente.telefone}</span>
                     </div>
                   )}
                   
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">Endereço:</span>
-                    <span className="ml-2 text-gray-600">
+                    <span className="ml-2 text-gray-600 break-words whitespace-normal">
                       {cliente.endereco.cidade}, {cliente.endereco.uf}
                     </span>
                   </div>
                 </div>
 
                     {/* Ações */}
-                    <div className="flex gap-2 pt-2 border-t border-[var(--cor-primaria)]/10">
+                    <div className="flex gap-2 pt-2 border-t border-[var(--cor-primaria)]/10 mt-auto">
                       <Button
                         variant="outline"
                         size="sm"

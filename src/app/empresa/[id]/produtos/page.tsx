@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { ListaProdutos } from "@/components/Empresa/Produtos/ListaProdutos";
-import { ModalProduto } from "@/components/Empresa/Produtos/ModalProduto";
+import { ModalProdutoV2 } from "@/components/Empresa/Produtos/ModalProdutoV2";
 import { ModalCategoria } from "@/components/Empresa/Produtos/ModalCategoria";
 import { Produto, ProdutoCreate, ProdutoUpdate, ProdutoQuery, CategoriaProduto, CategoriaProdutoCreate, CategoriaProdutoUpdate } from "@/types/produto";
 import { useToast } from "@/hooks/useToast";
@@ -352,19 +352,20 @@ export default function ProdutosPage() {
       />
 
       {/* Modal de Produto */}
-      <ModalProduto
+      <ModalProdutoV2
         open={modalProdutoOpen}
         onOpenChange={setModalProdutoOpen}
-        produto={produtoParaEditar}
+        produto={produtoParaEditar || undefined}
         onSuccess={handleCloseModalProduto}
         onSubmit={handleSubmitProduto}
+        empresaId={empresaId}
       />
 
       {/* Modal de Categoria */}
       <ModalCategoria
         open={modalCategoriaOpen}
         onOpenChange={setModalCategoriaOpen}
-        categoria={categoriaParaEditar}
+        categoria={categoriaParaEditar || undefined}
         onSuccess={handleCloseModalCategoria}
         onSubmit={handleSubmitCategoria}
       />

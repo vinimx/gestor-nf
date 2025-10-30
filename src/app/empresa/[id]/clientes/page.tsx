@@ -16,7 +16,7 @@ export default function ClientesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [clienteParaEditar, setClienteParaEditar] = useState<Cliente | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const isPageVisible = useRef(true);
+  // Removido: não controlamos mais foco/visibilidade para a lista de clientes
   
   const [query, setQuery] = useState<ClienteQuery>({
     search: "",
@@ -165,13 +165,7 @@ export default function ClientesPage() {
     setQuery(prev => ({ ...prev, offset }));
   };
 
-  const handleStatusChange = (status: "all" | "active" | "inactive") => {
-    setQuery(prev => ({
-      ...prev,
-      ativo: status === "all" ? undefined : status === "active",
-      offset: 0,
-    }));
-  };
+  // Removido: filtragem por status
 
   const handleTipoChange = (tipo: "all" | "FISICA" | "JURIDICA") => {
     setQuery(prev => ({
@@ -181,30 +175,7 @@ export default function ClientesPage() {
     }));
   };
 
-  // Controlar visibilidade da página para evitar refresh desnecessários
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      isPageVisible.current = !document.hidden;
-    };
-
-    const handleFocus = () => {
-      isPageVisible.current = true;
-    };
-
-    const handleBlur = () => {
-      isPageVisible.current = false;
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleBlur);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, []);
+  // Removido controle de visibilidade para evitar qualquer refresh implícito
 
   return (
     <div className="bg-[var(--background-color)] p-3">
@@ -229,7 +200,6 @@ export default function ClientesPage() {
 
       {/* Lista de Clientes */}
       <ListaClientes
-        key={refreshKey}
         empresaId={empresaId}
         query={query}
         onNovaCliente={handleNovaCliente}
@@ -238,8 +208,9 @@ export default function ClientesPage() {
         onSearchChange={handleSearchChange}
         onSortChange={handleSortChange}
         onPageChange={handlePageChange}
-        onStatusChange={handleStatusChange}
+        // Removido: filtragem por status
         onTipoChange={handleTipoChange}
+        refreshSignal={refreshKey}
       />
 
       {/* Modal de Cliente */}

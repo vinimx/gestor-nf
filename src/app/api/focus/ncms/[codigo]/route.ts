@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getEmpresaFocusConfig } from '@/lib/services/empresaService';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { codigo: string } }
+  { params }: { params: Promise<{ codigo: string }> }
 ) {
   try {
-    const { codigo } = params;
+    const { codigo } = await params;
 
     if (!codigo || !/^\d{8}$/.test(codigo)) {
       return NextResponse.json(
@@ -14,8 +15,23 @@ export async function GET(
       );
     }
 
-    const apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN;
-    const environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    const { searchParams } = new URL(request.url);
+    const empresaId = searchParams.get('empresa_id');
+    
+    // Buscar configuração FOCUS NFE da empresa
+    let apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN;
+    let environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    
+    if (empresaId) {
+      const empresaConfig = await getEmpresaFocusConfig(empresaId);
+      if (empresaConfig?.focus_nfe_token && empresaConfig.focus_nfe_ativo) {
+        apiToken = empresaConfig.focus_nfe_token;
+        environment = empresaConfig.focus_nfe_environment;
+        console.log(`Usando token FOCUS NFE da empresa ${empresaId} (${environment})`);
+      } else {
+        console.warn(`Empresa ${empresaId} não tem token FOCUS NFE configurado ou ativo`);
+      }
+    }
     
     // Se não há token, retornar dados locais
     if (!apiToken) {
@@ -83,7 +99,8 @@ export async function GET(
   } catch (error) {
     console.error('Erro no proxy NCM individual:', error);
     // Tentar dados locais em caso de erro
-    const ncmLocal = getNCMIndividualLocal(params.codigo);
+    const { codigo } = await params;
+    const ncmLocal = getNCMIndividualLocal(codigo);
     if (ncmLocal) {
       return NextResponse.json({
         success: true,

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { usePathname } from 'next/navigation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,9 +41,20 @@ export function ModalCliente({
   onSuccess,
   onSubmit,
 }: ModalClienteProps) {
+  const pathname = usePathname();
+  const empresaIdFromPath = (() => {
+    // Espera rota /empresa/[id]/...
+    try {
+      const parts = pathname.split('/');
+      const idx = parts.indexOf('empresa');
+      if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+    } catch {}
+    return undefined;
+  })();
   const [loading, setLoading] = useState(false);
   const [validatingDocument, setValidatingDocument] = useState(false);
   const [documentValidation, setDocumentValidation] = useState<ValidationResult | null>(null);
+  const lastValidatedCnpjRef = useRef<string>("");
   const [isMounted, setIsMounted] = useState(false);
   const [formData, setFormData] = useState({
     tipo: 'FISICA' as 'FISICA' | 'JURIDICA',
@@ -60,7 +72,7 @@ export function ModalCliente({
       uf: '',
       cep: '',
     },
-    ativo: true,
+    // status removido do cadastro
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -85,7 +97,7 @@ export function ModalCliente({
           ...cliente.endereco,
           complemento: cliente.endereco.complemento || '',
         },
-        ativo: cliente.ativo,
+        // status removido do cadastro
       });
     } else {
       // Reset form para novo cliente
@@ -105,7 +117,7 @@ export function ModalCliente({
           uf: '',
           cep: '',
         },
-        ativo: true,
+        // status removido do cadastro
       });
     }
     setErrors({});
@@ -126,20 +138,7 @@ export function ModalCliente({
     }
   };
 
-  const handleBooleanChange = (field: string, value: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value,
-    }));
-    
-    // Limpar erro do campo
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: '',
-      }));
-    }
-  };
+  // Removido: manipulação de campo booleano de status
 
   const handleEnderecoChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -160,10 +159,10 @@ export function ModalCliente({
   };
 
   const handleCPFCNPJChange = (value: string) => {
-    const tipo = detectarTipoCPFCNPJ(value);
+    // Não alterar automaticamente o tipo ao digitar.
+    // Mantém o tipo selecionado pelo usuário (FÍSICA/JURÍDICA)
     setFormData(prev => ({
       ...prev,
-      tipo,
       cpf_cnpj: value,
     }));
     
@@ -182,6 +181,9 @@ export function ModalCliente({
       tipo,
       cpf_cnpj: '', // Limpar CPF/CNPJ ao mudar tipo
     }));
+    // Reset de validação ao trocar tipo
+    setDocumentValidation(null);
+    lastValidatedCnpjRef.current = '';
   };
 
   const buscarCEP = async (cep: string) => {
@@ -278,7 +280,7 @@ export function ModalCliente({
       // Se for CNPJ e válido, tentar obter dados para preenchimento automático
       if (formData.tipo === 'JURIDICA' && validation.valido && validation.dados) {
         try {
-          const dadosCnpj = await obterDadosCnpjCompleto(cpfCnpjLimpo);
+          const dadosCnpj = await obterDadosCnpjCompleto(cpfCnpjLimpo, empresaIdFromPath);
           if (dadosCnpj.success && dadosCnpj.data) {
             // Preencher automaticamente os dados da empresa
             setFormData(prev => ({
@@ -308,9 +310,29 @@ export function ModalCliente({
         fonte: 'local'
       });
     } finally {
+      if (formData.tipo === 'JURIDICA') {
+        // Memoriza último CNPJ validado para evitar chamadas repetidas
+        lastValidatedCnpjRef.current = removeMaskCNPJ(formData.cpf_cnpj);
+      }
       setValidatingDocument(false);
     }
   };
+
+  // Auto-validação: dispara ao terminar de digitar CNPJ (14 dígitos)
+  useEffect(() => {
+    if (formData.tipo !== 'JURIDICA') return;
+    const cnpjLimpo = removeMaskCNPJ(formData.cpf_cnpj);
+    if (cnpjLimpo.length !== 14) return;
+    // Evitar chamadas repetidas para o mesmo CNPJ
+    if (lastValidatedCnpjRef.current === cnpjLimpo) return;
+    if (validatingDocument) return;
+
+    const timer = setTimeout(() => {
+      handleValidateDocument();
+    }, 500); // debounce
+
+    return () => clearTimeout(timer);
+  }, [formData.cpf_cnpj, formData.tipo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -323,8 +345,9 @@ export function ModalCliente({
     
     try {
       // Preparar dados para envio
+      const { /*ativo,*/ ...restForm } = formData as any;
       const submitData = {
-        ...formData,
+        ...restForm,
         cpf_cnpj: formData.tipo === 'FISICA' 
           ? removeMaskCPF(formData.cpf_cnpj)
           : removeMaskCNPJ(formData.cpf_cnpj),
@@ -399,7 +422,7 @@ export function ModalCliente({
               <Label htmlFor="cpf_cnpj">
                 {formData.tipo === 'FISICA' ? 'CPF *' : 'CNPJ *'}
               </Label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <Input
                   id="cpf_cnpj"
                   value={formData.cpf_cnpj}
@@ -415,20 +438,7 @@ export function ModalCliente({
                     documentValidation?.valido === false ? 'border-red-500' : ''
                   }`}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleValidateDocument}
-                  disabled={!formData.cpf_cnpj.trim() || validatingDocument}
-                  className="px-3 whitespace-nowrap"
-                >
-                  {validatingDocument ? (
-                    <LoadingSpinnerInline />
-                  ) : (
-                    'Validar'
-                  )}
-                </Button>
+                {validatingDocument && <LoadingSpinnerInline />}
               </div>
               
               {/* Feedback de validação */}
@@ -617,19 +627,7 @@ export function ModalCliente({
             </div>
           </div>
 
-          {/* Status */}
-          <div>
-            <Label htmlFor="ativo">Status</Label>
-            <select
-              id="ativo"
-              value={formData.ativo ? 'true' : 'false'}
-              onChange={(e) => handleBooleanChange('ativo', e.target.value === 'true')}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="true">Ativo</option>
-              <option value="false">Inativo</option>
-            </select>
-          </div>
+          {/* Status removido do cadastro */}
 
           {/* Botões */}
           <div className="flex justify-end gap-3 pt-4 border-t">

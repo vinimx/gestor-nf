@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { focusProdutoService } from '@/lib/services/focusProdutoService';
+import { focusProdutoService, createFocusProdutoService } from '@/lib/services/focusProdutoService';
 
 interface NCMItem {
   codigo: string;
@@ -75,7 +75,7 @@ interface UseFocusNFEReturn {
   }>;
 }
 
-export function useFocusNFE(): UseFocusNFEReturn {
+export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
   const [loadingNCM, setLoadingNCM] = useState(false);
   const [loadingCFOP, setLoadingCFOP] = useState(false);
   const [loadingCST, setLoadingCST] = useState(false);
@@ -100,7 +100,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
       setLoadingNCM(true);
       setErrorNCM(null);
       
-      const response = await focusProdutoService.buscarNCMs(params);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.buscarNCMs(params);
       
       if (response.success && response.data) {
         return response.data;
@@ -128,7 +129,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
       setLoadingCFOP(true);
       setErrorCFOP(null);
       
-      const response = await focusProdutoService.buscarCFOPs(params);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.buscarCFOPs(params);
       
       if (response.success && response.data) {
         return response.data;
@@ -151,7 +153,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
       setLoadingCST(true);
       setErrorCST(null);
       
-      const response = await focusProdutoService.buscarCSTs(tipo);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.buscarCSTs(tipo);
       
       if (response.success && response.data) {
         return response.data;
@@ -174,7 +177,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
       setLoadingNCM(true);
       setErrorNCM(null);
       
-      const response = await focusProdutoService.consultarNCM(codigo);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.consultarNCM(codigo);
       
       if (response.success && response.data && response.data.length > 0) {
         return response.data[0];
@@ -197,7 +201,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
       setLoadingCFOP(true);
       setErrorCFOP(null);
       
-      const response = await focusProdutoService.consultarCFOP(codigo);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.consultarCFOP(codigo);
       
       if (response.success && response.data && response.data.length > 0) {
         return response.data[0];
@@ -221,7 +226,8 @@ export function useFocusNFE(): UseFocusNFEReturn {
     warnings: string[];
   }> => {
     try {
-      const response = await focusProdutoService.validarProduto(produtoData);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.validarProduto(produtoData);
       
       if (response.success && response.data) {
         return {

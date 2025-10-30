@@ -80,8 +80,10 @@ class FocusProdutoService {
   private apiToken: string;
   private environment: string;
   private useApi: boolean;
+  private empresaId?: string;
 
-  constructor() {
+  constructor(empresaId?: string) {
+    this.empresaId = empresaId;
     this.baseUrl = process.env.NEXT_PUBLIC_FOCUS_API_URL || 'https://api.focusnfe.com.br';
     this.environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
     this.apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN || '';
@@ -95,6 +97,7 @@ class FocusProdutoService {
     this.useApi = !!this.apiToken;
     
     console.log('FocusProdutoService configurado:', {
+      empresaId: this.empresaId,
       environment: this.environment,
       baseUrl: this.baseUrl,
       hasToken: !!this.apiToken,
@@ -185,7 +188,11 @@ class FocusProdutoService {
       if (this.useApi && this.apiToken) {
         try {
           // Tentar usar API route local primeiro (para evitar CORS)
-          const response = await fetch(`/api/focus/ncms/${codigoNCM}`, {
+          const url = this.empresaId 
+            ? `/api/focus/ncms/${codigoNCM}?empresa_id=${this.empresaId}`
+            : `/api/focus/ncms/${codigoNCM}`;
+          
+          const response = await fetch(url, {
         method: 'GET',
         headers: {
               'Content-Type': 'application/json',
@@ -282,6 +289,7 @@ class FocusProdutoService {
           if (params.item2) queryParams.append('item2', params.item2);
           if (params.offset) queryParams.append('offset', params.offset.toString());
           if (params.limit) queryParams.append('limit', params.limit.toString());
+          if (this.empresaId) queryParams.append('empresa_id', this.empresaId);
 
           console.log('FocusProdutoService: Buscando NCMs via API route...');
 
@@ -313,6 +321,8 @@ class FocusProdutoService {
                 totalCount: result.totalCount,
                 source: result.source
               };
+            } else if (this.empresaId && result?.error) {
+              return { success: false, error: result.error } as any;
             }
           } else {
             console.warn('FocusProdutoService: Erro na resposta da API route NCM:', response.status);
@@ -406,7 +416,11 @@ class FocusProdutoService {
       if (this.useApi && this.apiToken) {
         try {
           // Usar API route local para evitar CORS
-          const response = await fetch(`/api/focus/cfops/${codigoCFOP}`, {
+          const url = this.empresaId 
+            ? `/api/focus/cfops/${codigoCFOP}?empresa_id=${this.empresaId}`
+            : `/api/focus/cfops/${codigoCFOP}`;
+          
+          const response = await fetch(url, {
         method: 'GET',
         headers: {
               'Content-Type': 'application/json',
@@ -494,6 +508,7 @@ class FocusProdutoService {
           if (params.descricao) queryParams.append('descricao', params.descricao);
           if (params.offset) queryParams.append('offset', params.offset.toString());
           if (params.limit) queryParams.append('limit', params.limit.toString());
+          if (this.empresaId) queryParams.append('empresa_id', this.empresaId);
 
           console.log('FocusProdutoService: Buscando CFOPs via API route...');
 
@@ -520,6 +535,8 @@ class FocusProdutoService {
                 totalCount: result.totalCount,
                 source: result.source
               };
+            } else if (this.empresaId && result?.error) {
+              return { success: false, error: result.error } as any;
             }
           } else {
             console.warn('FocusProdutoService: Erro na resposta da API route CFOP:', response.status);
@@ -647,7 +664,18 @@ class FocusProdutoService {
         { codigo: '51', descricao: '51 - Diferimento', aplicavel: true },
         { codigo: '60', descricao: '60 - ICMS cobrado anteriormente por substituição tributária', aplicavel: true },
         { codigo: '70', descricao: '70 - Com redução de base de cálculo e cobrança do ICMS por substituição tributária', aplicavel: true },
-        { codigo: '90', descricao: '90 - Outras', aplicavel: true }
+        { codigo: '90', descricao: '90 - Outras', aplicavel: true },
+        // CSOSN (Simples Nacional)
+        { codigo: '101', descricao: '101 - Tributada com permissão de crédito', aplicavel: true },
+        { codigo: '102', descricao: '102 - Tributada sem permissão de crédito', aplicavel: true },
+        { codigo: '103', descricao: '103 - Isenção do ICMS para faixa de receita bruta', aplicavel: true },
+        { codigo: '201', descricao: '201 - Tributada com ST e com permissão de crédito', aplicavel: true },
+        { codigo: '202', descricao: '202 - Tributada com ST sem permissão de crédito', aplicavel: true },
+        { codigo: '203', descricao: '203 - Isenção do ICMS para faixa de receita bruta e com ST', aplicavel: true },
+        { codigo: '300', descricao: '300 - Imune', aplicavel: true },
+        { codigo: '400', descricao: '400 - Não tributada', aplicavel: true },
+        { codigo: '500', descricao: '500 - ICMS cobrado anteriormente por ST ou por antecipação', aplicavel: true },
+        { codigo: '900', descricao: '900 - Outros', aplicavel: true }
       ],
       IPI: [
         { codigo: '00', descricao: '00 - Entrada com recuperação de crédito', aplicavel: true },
@@ -745,3 +773,8 @@ class FocusProdutoService {
 }
 
 export const focusProdutoService = new FocusProdutoService();
+
+// Função para criar instância com empresa específica
+export function createFocusProdutoService(empresaId?: string): FocusProdutoService {
+  return new FocusProdutoService(empresaId);
+}

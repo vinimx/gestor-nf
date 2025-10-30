@@ -278,7 +278,7 @@ export default function DemoSeletoresFiscais() {
               {ncm && (
                 <div className="p-2 bg-green-50 border border-green-200 rounded">
                   <div className="text-sm font-medium text-green-800">NCM Selecionado</div>
-                  <div className="text-sm text-green-600">{ncm.codigo} - {ncm.descricao}</div>
+                  <div className="text-sm text-green-600">{ncm.codigo} - {ncm.descricao_completa}</div>
                 </div>
               )}
               

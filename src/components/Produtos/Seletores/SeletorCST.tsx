@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Check, AlertCircle, Loader2, Filter } from 'lucide-react';
-import { focusProdutoService } from '@/lib/services/focusProdutoService';
+import { focusProdutoService, createFocusProdutoService } from '@/lib/services/focusProdutoService';
 import { cn } from '@/lib/utils';
 
 interface CSTItem {
@@ -20,6 +20,8 @@ interface SeletorCSTProps {
   disabled?: boolean;
   error?: string;
   tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS';
+  regime?: 'SIMPLES' | 'PRESUMIDO' | 'REAL';
+  empresaId?: string;
 }
 
 export function SeletorCST({
@@ -29,7 +31,9 @@ export function SeletorCST({
   className,
   disabled = false,
   error,
-  tipo
+  tipo,
+  regime,
+  empresaId
 }: SeletorCSTProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -40,7 +44,7 @@ export function SeletorCST({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Carregar CSTs quando o componente monta ou o tipo muda
   useEffect(() => {
@@ -80,10 +84,24 @@ export function SeletorCST({
       setLoading(true);
       setErrorMessage('');
       
-      const response = await focusProdutoService.buscarCSTs(tipo);
+      const service = empresaId ? createFocusProdutoService(empresaId) : focusProdutoService;
+      const response = await service.buscarCSTs(tipo);
 
       if (response.success && response.data) {
-        setResults(response.data);
+        // Dedupe por código para evitar itens repetidos
+        const uniqueByCodigo = Array.from(new Map(response.data.map((x) => [x.codigo, x])).values());
+        let list = uniqueByCodigo;
+        // Filtrar por regime (ICMS): SIMPLES -> CSOSN (mapa de códigos)
+        if (tipo === 'ICMS' && regime) {
+          const csosnSet = new Set(['101','102','103','201','202','203','300','400','500','900']);
+          const cstSet = new Set(['00','10','20','30','40','41','50','51','60','70','90']);
+          if (regime === 'SIMPLES') {
+            list = list.filter((x) => csosnSet.has(x.codigo));
+          } else {
+            list = list.filter((x) => cstSet.has(x.codigo));
+          }
+        }
+        setResults(list);
       } else {
         setResults([]);
         setErrorMessage(response.error || 'Erro ao carregar CSTs');
@@ -186,7 +204,7 @@ export function SeletorCST({
           placeholder={placeholder || `Buscar CST ${tipo}...`}
           disabled={disabled}
           className={cn(
-            "block w-full pl-10 pr-10 py-2 border rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm",
+            "block w-full pl-10 pr-10 py-2 border rounded-md shadow-sm bg-white text-[var(--foreground)] border-[var(--cor-primaria)]/30 focus:ring-2 focus:ring-[var(--cor-primaria)]/30 focus:border-[var(--cor-primaria)] sm:text-sm",
             error || errorMessage
               ? "border-red-300 focus:ring-red-500 focus:border-red-500"
               : "border-gray-300",
@@ -225,7 +243,7 @@ export function SeletorCST({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto"
+          className="absolute z-50 w-full mt-1 bg-white text-[var(--foreground)] border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto"
         >
           {filteredResults.length > 0 ? (
             <div className="py-1">
@@ -244,22 +262,13 @@ export function SeletorCST({
                         <span className={cn(
                           "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
                           getTipoColor(item.tipo)
-                        )}>
-                          {getTipoLabel(item.tipo)}
-                        </span>
-                        {item.aplicavel && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                            Aplicável
-                          </span>
-                        )}
+                        )}>{getTipoLabel(item.tipo)}</span>
                       </div>
                       <p className="mt-1 text-sm text-gray-900 line-clamp-2">
                         {item.descricao}
                       </p>
                     </div>
-                    {item.aplicavel && (
-                      <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
-                    )}
+                    <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
                   </div>
                 </div>
               ))}
@@ -284,14 +293,7 @@ export function SeletorCST({
                 <span className={cn(
                   "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
                   getTipoColor(selectedItem.tipo)
-                )}>
-                  {getTipoLabel(selectedItem.tipo)}
-                </span>
-                {selectedItem.aplicavel && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                    Aplicável
-                  </span>
-                )}
+                )}>{getTipoLabel(selectedItem.tipo)}</span>
               </div>
               <p className="mt-1 text-sm text-green-700">
                 {selectedItem.descricao}
@@ -308,6 +310,9 @@ export function SeletorCST({
           </div>
         </div>
       )}
+
+      {/* Ajuda contextual */}
+      <p className="mt-1 text-xs text-gray-500">Digite 2-3 dígitos do código ou parte da descrição para filtrar.</p>
 
       {/* Mensagem de erro */}
       {(error || errorMessage) && !selectedItem && (

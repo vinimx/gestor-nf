@@ -164,7 +164,7 @@ export class CPFCNPJValidationService {
    * @param cnpj CNPJ sem formatação
    * @returns Dados completos do CNPJ
    */
-  async obterDadosCnpj(cnpj: string): Promise<{
+  async obterDadosCnpj(cnpj: string, empresaId?: string): Promise<{
     success: boolean;
     data?: any;
     error?: string;
@@ -190,11 +190,15 @@ export class CPFCNPJValidationService {
       }
 
       const resultado = await this.validarComTimeout(
-        () => service.obterDadosCnpj(cnpjLimpo),
+        () => service.obterDadosCnpj(cnpjLimpo, empresaId),
         this.options.timeout!
       );
 
-      return resultado;
+      return {
+        success: resultado.success,
+        data: resultado.data,
+        error: typeof resultado.error === 'string' ? resultado.error : undefined
+      };
     } catch (error) {
       return {
         success: false,
@@ -260,11 +264,11 @@ export async function validarDocumentoCompleto(
   return service.validarDocumento(documento, tipo);
 }
 
-export async function obterDadosCnpjCompleto(cnpj: string): Promise<{
+export async function obterDadosCnpjCompleto(cnpj: string, empresaId?: string): Promise<{
   success: boolean;
   data?: any;
   error?: string;
 }> {
   const service = getValidationService();
-  return service.obterDadosCnpj(cnpj);
+  return service.obterDadosCnpj(cnpj, empresaId);
 }

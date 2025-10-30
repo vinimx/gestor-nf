@@ -6,10 +6,10 @@ import { clienteQuerySchema, clienteCreateSchema, validarCPFCNPJ } from "@/lib/v
 // GET /api/empresa/[id]/clientes
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: empresaId } = await params;
+    const { id: empresaId } = params;
     
     if (!empresaId) {
       return NextResponse.json(
@@ -80,7 +80,8 @@ export async function GET(
     }
 
     if (query.ativo !== undefined) {
-      supabaseQuery = supabaseQuery.eq('ativo', query.ativo);
+      // Uso de 'is' para comparação booleana explícita no PostgREST
+      supabaseQuery = supabaseQuery.is('ativo', query.ativo === true ? true : false);
     }
 
     // Aplicar ordenação
@@ -132,10 +133,10 @@ export async function GET(
 // POST /api/empresa/[id]/clientes
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: empresaId } = await params;
+    const { id: empresaId } = params;
     
     if (!empresaId) {
       return NextResponse.json(

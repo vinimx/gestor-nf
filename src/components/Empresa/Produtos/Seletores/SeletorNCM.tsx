@@ -24,6 +24,7 @@ interface SeletorNCMProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  empresaId?: string;
 }
 
 export function SeletorNCM({
@@ -33,12 +34,14 @@ export function SeletorNCM({
   placeholder = "Digite o código NCM...",
   disabled = false,
   className,
+  empresaId,
 }: SeletorNCMProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [selectedNCM, setSelectedNCM] = useState<FocusNCMData | null>(null);
   const [isValid, setIsValid] = useState(false);
   const [validationMessage, setValidationMessage] = useState("");
+  const [results, setResults] = useState<FocusNCMData[]>([]);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -48,7 +51,7 @@ export function SeletorNCM({
     consultarNCM, 
     loadingNCM, 
     errorNCM 
-  } = useFocusNFE();
+  } = useFocusNFE(empresaId);
 
   // Debounce para busca
   useEffect(() => {
@@ -95,8 +98,22 @@ export function SeletorNCM({
     if (searchTerm.length < 2) return;
     
     try {
-      const results = await buscarNCMs(searchTerm);
-      if (results.length > 0) {
+      const fetched = await buscarNCMs({
+        descricao: searchTerm,
+        limit: 20
+      });
+      if (fetched.length > 0) {
+        // Ordenar resultados: código que começa com o termo tem prioridade
+        const ordered = [...fetched].sort((a, b) => {
+          const aStarts = a.codigo.startsWith(searchTerm) ? 1 : 0;
+          const bStarts = b.codigo.startsWith(searchTerm) ? 1 : 0;
+          if (aStarts !== bStarts) return bStarts - aStarts;
+          // fallback: descrição que contém termo primeiro
+          const aDesc = a.descricao_completa.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0;
+          const bDesc = b.descricao_completa.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0;
+          return bDesc - aDesc;
+        });
+        setResults(ordered);
         setShowResults(true);
       }
     } catch (error) {
@@ -117,7 +134,7 @@ export function SeletorNCM({
       if (ncmData) {
         setSelectedNCM(ncmData);
         setIsValid(true);
-        setValidationMessage(ncmData.descricao);
+        setValidationMessage("");
         onValidate?.(true);
       } else {
         setIsValid(false);
@@ -138,7 +155,7 @@ export function SeletorNCM({
     onChange(ncm);
     setShowResults(false);
     setIsValid(true);
-    setValidationMessage(ncm.descricao);
+    setValidationMessage("");
     onValidate?.(true);
   };
 
@@ -200,7 +217,7 @@ export function SeletorNCM({
     <div className={cn("space-y-2", className)}>
       <Label htmlFor="ncm">NCM (Nomenclatura Comum do Mercosul)</Label>
       
-      <div className="relative">
+        <div className="relative">
         <div className="relative">
           <Input
             ref={inputRef}
@@ -211,7 +228,7 @@ export function SeletorNCM({
             onChange={handleInputChange}
             onFocus={handleInputFocus}
             className={cn(
-              "pr-10",
+              "pr-10 bg-white text-[var(--foreground)] border border-[var(--cor-primaria)]/30 focus:ring-2 focus:ring-[var(--cor-primaria)]/30",
               getStatusColor()
             )}
             maxLength={8}
@@ -226,7 +243,7 @@ export function SeletorNCM({
         {showResults && (
           <div
             ref={resultsRef}
-            className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto"
+            className="absolute z-50 w-full mt-1 bg-white text-[var(--foreground)] border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto"
           >
             {loadingNCM ? (
               <div className="p-3 text-center">
@@ -235,24 +252,34 @@ export function SeletorNCM({
               </div>
             ) : (
               <div className="py-1">
-                {searchTerm.length >= 2 && (
-                  <div
-                    className="px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50"
-                    onClick={() => {
-                      setSearchTerm("");
-                      setShowResults(false);
-                    }}
-                  >
-                    <Search className="inline h-4 w-4 mr-2" />
-                    Buscar por: "{searchTerm}"
+                {results.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-gray-500">
+                    Nenhum NCM encontrado para "{searchTerm}"
                   </div>
                 )}
-                
-                {searchTerm.length >= 2 && (
-                  <div className="border-t border-gray-100">
-                    <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50">
-                      Resultados da busca
-                    </div>
+                {results.length > 0 && (
+                  <div className="divide-y divide-gray-100">
+                    {results.map((item) => (
+                      <div
+                        key={item.codigo}
+                        className="px-3 py-2 cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleNCMSelect(item)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-mono text-sm font-medium text-blue-600">
+                              {item.codigo}
+                            </div>
+                            <div className="text-sm text-gray-700 line-clamp-2">
+                              {item.descricao_completa}
+                            </div>
+                          </div>
+                          {item.codigo === searchTerm && (
+                            <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -261,8 +288,11 @@ export function SeletorNCM({
         )}
       </div>
 
+      {/* Ajuda contextual */}
+      <p className="text-xs text-gray-500">Digite 8 dígitos para validar automaticamente ou busque pela descrição.</p>
+
       {/* Mensagem de validação */}
-      {validationMessage && (
+      {!isValid && validationMessage && (
         <div className={cn(
           "text-sm",
           isValid ? "text-green-600" : "text-red-600"
@@ -285,10 +315,10 @@ export function SeletorNCM({
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="font-medium text-green-800">
-                {selectedNCM.codigo} - {selectedNCM.descricao}
+                {selectedNCM.codigo} - {selectedNCM.descricao_completa}
               </div>
               <div className="text-sm text-green-600 mt-1">
-                Unidade: {selectedNCM.unidade}
+                NCM válido
               </div>
             </div>
             <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
