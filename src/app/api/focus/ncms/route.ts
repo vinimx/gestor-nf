@@ -17,28 +17,37 @@ export async function GET(request: NextRequest) {
 
     const empresaId = searchParams.get('empresa_id');
     
-    // Buscar configuração FOCUS NFE da empresa
-    let apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN;
-    let environment = process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT || 'homologacao';
+    // Carregar token/env: empresa -> fallback .env (mesmo padrão da FASE 2)
+    let apiToken = process.env.NEXT_PUBLIC_FOCUS_NFE_TOKEN || '';
+    let environment = (process.env.NEXT_PUBLIC_FOCUS_NFE_ENVIRONMENT as 'homologacao' | 'producao') || 'homologacao';
     
     if (empresaId) {
-      const empresaConfig = await getEmpresaFocusConfig(empresaId);
-      if (empresaConfig?.focus_nfe_token && empresaConfig.focus_nfe_ativo) {
-        apiToken = empresaConfig.focus_nfe_token;
-        environment = empresaConfig.focus_nfe_environment;
-        console.log(`Usando token FOCUS NFE da empresa ${empresaId} (${environment})`);
-      } else {
-        console.warn(`Empresa ${empresaId} não tem token FOCUS NFE configurado ou ativo`);
-        return NextResponse.json({
-          success: false,
-          error: 'FOCUS NFE desativado ou não configurado para esta empresa. Valide o token para usar a API.',
-        }, { status: 401 });
+      try {
+        const empresaConfig = await getEmpresaFocusConfig(empresaId);
+        if (empresaConfig?.focus_nfe_token && empresaConfig.focus_nfe_ativo) {
+          apiToken = empresaConfig.focus_nfe_token;
+          environment = empresaConfig.focus_nfe_environment;
+          console.log(`[NCM] Usando token FOCUS NFE da empresa ${empresaId} (${environment})`);
+        } else {
+          console.warn(`[NCM] Empresa ${empresaId} sem token ativo. Usando token global/env.`);
+        }
+      } catch (e) {
+        console.warn('[NCM] Falha ao obter config da empresa. Usando token global/env.');
       }
     }
     
-    // Se não há token, retornar dados locais
+    // Se não há token, retornar erro (se empresaId presente) ou dados locais (sem empresaId)
     if (!apiToken) {
-      console.warn('Token FOCUS NFE não configurado, usando dados locais');
+      if (empresaId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { codigo: 'TOKEN_INDISPONIVEL', mensagem: 'Token FOCUS NFE não configurado' }
+          },
+          { status: 400 }
+        );
+      }
+      console.warn('[NCM] Token FOCUS NFE não configurado, usando dados locais');
       return NextResponse.json({
         success: true,
         data: getNCMsLocais(codigo, descricao, limit, offset),
@@ -52,7 +61,13 @@ export async function GET(request: NextRequest) {
       ? 'https://homologacao.focusnfe.com.br' 
       : 'https://api.focusnfe.com.br';
 
-    let url = `${baseUrl}/v2/ncms`;
+    // Construir URLs (tentar múltiplas variações como na FASE 2)
+    const buildCandidates = (base: string) => [
+      `${base}/v2/ncms`,
+      `${base}/v2/ncms/`,
+    ];
+
+    let url = '';
     const queryParams = new URLSearchParams();
     
     // Parâmetros conforme documentação FOCUS NFE
@@ -64,50 +79,142 @@ export async function GET(request: NextRequest) {
     if (subposicao2) queryParams.append('subposicao2', subposicao2);
     if (item1) queryParams.append('item1', item1);
     if (item2) queryParams.append('item2', item2);
+    if (limit > 0) queryParams.append('limit', limit.toString());
     if (offset > 0) queryParams.append('offset', offset.toString());
-    
-    if (queryParams.toString()) {
-      url += `?${queryParams.toString()}`;
+
+    const hosts: Array<{ env: 'homologacao' | 'producao'; url: string }> = [
+      { env: environment, url: baseUrl },
+      { env: environment === 'producao' ? 'homologacao' : 'producao', url: environment === 'producao' ? 'https://homologacao.focusnfe.com.br' : 'https://api.focusnfe.com.br' },
+    ];
+
+    let data: any = null;
+    let lastErrorText = '';
+    let lastStatus = 0;
+    let usedEnv: 'homologacao' | 'producao' = environment;
+
+    console.log('[NCM] Tentando buscar da API FOCUS NFE...');
+
+    outer: for (const host of hosts) {
+      const endpoints = buildCandidates(host.url);
+      for (let baseUrlCandidate of endpoints) {
+        const queryString = queryParams.toString();
+        const fullUrl = queryString ? `${baseUrlCandidate}?${queryString}` : baseUrlCandidate;
+        
+        console.log(`[NCM] Tentando: ${fullUrl}`);
+
+        const response = await fetch(fullUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${Buffer.from(apiToken + ':').toString('base64')}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'gestor-nf/1.0 (+https://localhost)'
+          },
+          next: { revalidate: 0 }
+        });
+
+        if (!response.ok) {
+          lastStatus = response.status;
+          const errorText = await response.text();
+          lastErrorText = errorText;
+          
+          // Não retornar 401 imediatamente - tentar todos os hosts primeiro
+          if (response.status === 401) {
+            console.warn(`[NCM] Token inválido (401) no ambiente ${host.env}, tentando próximo...`);
+            // Continuar para tentar próximo host/ambiente
+            continue;
+          }
+          
+          console.warn(`[NCM] Erro ${response.status}, tentando próximo endpoint...`);
+          continue;
+        }
+
+        try {
+          data = await response.json();
+          if (data && Array.isArray(data)) {
+            usedEnv = host.env;
+            console.log(`[NCM] Sucesso! Recebidos ${data.length} NCMs do ambiente ${usedEnv}`);
+            break outer;
+          }
+        } catch (e) {
+          console.warn('[NCM] Resposta não é JSON válido, tentando próximo...');
+          continue;
+        }
+      }
     }
 
-    console.log('Chamando API FOCUS NFE:', url);
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Basic ${Buffer.from(apiToken + ':').toString('base64')}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Erro na API FOCUS NFE:', response.status, errorText);
-      // Retornar dados locais em caso de erro
+    if (!data || !Array.isArray(data)) {
+      console.error('[NCM] Erro Focus NFe (última tentativa):', lastStatus, lastErrorText);
+      
+      // Se 401 após tentar todos os hosts, token está inválido
+      if (lastStatus === 401) {
+        const mensagemErro = empresaId
+          ? 'Token FOCUS NFE inválido. Configure um token válido na empresa ou no sistema.'
+          : 'Token FOCUS NFE não configurado ou inválido. Configure NEXT_PUBLIC_FOCUS_NFE_TOKEN no .env ou configure token na empresa.';
+        
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: { 
+              codigo: 'NAO_AUTORIZADO', 
+              mensagem: mensagemErro 
+            } 
+          }, 
+          { status: 401 }
+        );
+      }
+      
+      // Se empresaId presente, não retornar dados locais
+      if (empresaId) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: { 
+              codigo: 'ERRO_API', 
+              mensagem: lastErrorText || 'Erro ao conectar com a API Focus NFe. Verifique sua conexão.' 
+            } 
+          }, 
+          { status: lastStatus || 502 }
+        );
+      }
+      
+      // Sem empresaId: retornar dados locais como fallback
       return NextResponse.json({
         success: true,
         data: getNCMsLocais(codigo, descricao, limit, offset),
         totalCount: 3,
         source: 'local_fallback',
-        error: `API FOCUS NFE retornou ${response.status}: ${errorText}`
+        error: `API FOCUS NFE retornou ${lastStatus}: ${lastErrorText}`
       });
     }
 
-    const data = await response.json();
-    const totalCount = response.headers.get('X-Total-Count');
-
-    console.log(`API FOCUS NFE retornou ${data.length} NCMs, total: ${totalCount}`);
+    // Extrair totalCount se disponível (Focus NFE pode retornar em headers)
+    const totalCount = data.length; // Default: usar tamanho do array
 
     return NextResponse.json({
       success: true,
       data: data,
-      totalCount: totalCount ? parseInt(totalCount) : data.length,
-      source: 'focus_nfe'
+      totalCount: totalCount,
+      source: 'focus_nfe',
+      environment_used: usedEnv
     });
 
   } catch (error) {
-    console.error('Erro no proxy NCM:', error);
-    // Retornar dados locais em caso de erro
+    console.error('[NCM] Erro no proxy:', error);
+    
+    // Se empresaId presente, não retornar dados locais
+    const empresaId = new URL(request.url).searchParams.get('empresa_id');
+    if (empresaId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { codigo: 'ERRO_REDE', mensagem: error instanceof Error ? error.message : 'Erro de conexão com a API FOCUS NFE' }
+        },
+        { status: 500 }
+      );
+    }
+    
+    // Sem empresaId: retornar dados locais como fallback
     return NextResponse.json({
       success: true,
       data: getNCMsLocais(),

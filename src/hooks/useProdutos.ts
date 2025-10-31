@@ -235,7 +235,14 @@ export function useCategoriasProdutos(empresaId: string) {
       }
 
       const data = await response.json();
-      setCategorias(data.data || data);
+      // Suportar ambos os formatos: { success, data } ou array direto
+      if (Array.isArray(data)) {
+        setCategorias(data);
+      } else if (data.data && Array.isArray(data.data)) {
+        setCategorias(data.data);
+      } else {
+        setCategorias([]);
+      }
     } catch (err: any) {
       console.error('Erro ao buscar categorias:', err);
       setError(err.message || 'Erro ao carregar categorias');

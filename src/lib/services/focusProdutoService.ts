@@ -106,42 +106,69 @@ class FocusProdutoService {
   }
 
   // ===== VALIDAÇÃO DE PRODUTOS =====
+  /**
+   * Valida produto completo incluindo CSTs no contexto.
+   * Esta é a validação REAL que usa a API FOCUS NFE.
+   * 
+   * Valida:
+   * - NCM + CFOP + CST em conjunto (validação contextual)
+   * - Compatibilidade com regime tributário
+   * - Regras fiscais específicas da FOCUS NFE
+   * 
+   * IMPORTANTE: Esta validação captura erros de CST que dados locais não detectam,
+   * como incompatibilidade CST+NCM+CFOP ou CST inválido para o regime tributário.
+   */
   async validarProduto(produtoData: FocusProdutoData): Promise<FocusValidationResponse> {
     try {
-      // Validação local primeiro
+      // Validação local primeiro (validações básicas de formato)
       const validacaoLocal = this.validarProdutoLocal(produtoData);
       if (!validacaoLocal.success) {
         return validacaoLocal;
       }
 
       // Se API configurada e habilitada, validar via FOCUS NFE
+      // A API FOCUS NFE valida CST no contexto completo (NCM+CFOP+Regime)
       if (this.useApi && this.apiToken) {
         try {
-      const response = await fetch(`${this.baseUrl}/v2/produtos/validar`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-              'Authorization': `Basic ${btoa(this.apiToken + ':')}`
+          // Usar API route local para evitar CORS e usar token dinâmico
+          const url = this.empresaId 
+            ? `/api/focus-nfe/produtos/validar?empresa_id=${this.empresaId}`
+            : `/api/focus-nfe/produtos/validar`;
+          
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
             },
             body: JSON.stringify(produtoData)
           });
 
           if (response.ok) {
-      const data = await response.json();
-      return {
-        success: true,
-        data: {
-          valid: data.valid || false,
-          errors: data.errors || [],
-                warnings: data.warnings || []
+            const data = await response.json();
+            return {
+              success: true,
+              data: {
+                valid: data.data?.valid || false,
+                errors: data.data?.errors || [],
+                warnings: data.data?.warnings || []
               }
+            };
+          } else {
+            // Se API retornou erro, tentar parsear mensagem
+            const errorData = await response.json().catch(() => ({}));
+            return {
+              success: false,
+              error: errorData?.error || `Erro ${response.status} na validação via API FOCUS NFE`
             };
           }
         } catch (error) {
           console.warn('Erro na validação via API FOCUS NFE:', error);
+          // Se erro de rede, retornar validação local como fallback
+          return validacaoLocal;
         }
       }
 
+      // Sem API: retornar validação local apenas (não valida CST contextualmente)
       return validacaoLocal;
     } catch (error) {
       return {
@@ -193,38 +220,81 @@ class FocusProdutoService {
             : `/api/focus/ncms/${codigoNCM}`;
           
           const response = await fetch(url, {
-        method: 'GET',
-        headers: {
+            method: 'GET',
+            headers: {
               'Content-Type': 'application/json',
             }
-      });
+          });
 
           if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
-          return {
+              return {
                 success: true,
                 data: [{
                   codigo: result.data.codigo,
-                  descricao_completa: result.data.descricao_completa,
-                  capitulo: result.data.capitulo,
-                  posicao: result.data.posicao,
-                  subposicao1: result.data.subposicao1,
-                  subposicao2: result.data.subposicao2,
-                  item1: result.data.item1,
-                  item2: result.data.item2,
+                  descricao_completa: result.data.descricao_completa || result.data.descricao || '',
+                  capitulo: result.data.capitulo || '',
+                  posicao: result.data.posicao || '',
+                  subposicao1: result.data.subposicao1 || '',
+                  subposicao2: result.data.subposicao2 || '',
+                  item1: result.data.item1 || '',
+                  item2: result.data.item2 || '',
                   valid: true
                 }]
               };
+            } else if (result?.error) {
+              // Se há erro, retornar erro (não tentar local)
+              console.error('FocusProdutoService: Erro da API:', result.error);
+              return { 
+                success: false, 
+                error: typeof result.error === 'string' ? result.error : (result.error.mensagem || 'Erro na consulta de NCM')
+              } as any;
             }
+          } else {
+            // Resposta não ok - verificar se é erro da API
+            const errorData = await response.json().catch(() => ({}));
+            if (this.empresaId) {
+              // Com empresaId, não usar dados locais
+              return {
+                success: false,
+                error: errorData?.error?.mensagem || `Erro ${response.status} na API FOCUS NFE`
+              } as any;
+            }
+            console.warn('FocusProdutoService: Erro na resposta da API route NCM:', response.status);
           }
         } catch (error) {
-          console.warn('Erro na consulta NCM via API route:', error);
+          console.warn('FocusProdutoService: Erro na consulta NCM via API route:', error);
+          if (this.empresaId) {
+            // Com empresaId, não usar dados locais
+            return {
+              success: false,
+              error: 'Erro de conexão com a API FOCUS NFE'
+            } as any;
+          }
         }
+      } else {
+        console.log('FocusProdutoService: Usando dados locais (API não configurada)');
       }
 
-      return this.consultarNCMLocal(codigoNCM);
+      // Sem empresaId ou sem token: usar dados locais como fallback
+      if (!this.empresaId) {
+        return this.consultarNCMLocal(codigoNCM);
+      }
+      
+      // Com empresaId mas sem token/config: retornar erro
+      return {
+        success: false,
+        error: 'FOCUS NFE não configurado para esta empresa'
+      } as any;
     } catch (error) {
+      console.error('FocusProdutoService: Erro na consulta de NCM:', error);
+      if (this.empresaId) {
+        return {
+          success: false,
+          error: 'Erro na consulta do NCM'
+        } as any;
+      }
       return {
         success: false,
         error: 'Erro na consulta do NCM'
@@ -309,32 +379,62 @@ class FocusProdutoService {
                 success: true,
                 data: result.data.map((item: any) => ({
                   codigo: item.codigo,
-                  descricao_completa: item.descricao_completa,
-                  capitulo: item.capitulo,
-                  posicao: item.posicao,
-                  subposicao1: item.subposicao1,
-                  subposicao2: item.subposicao2,
-                  item1: item.item1,
-                  item2: item.item2,
+                  descricao_completa: item.descricao_completa || item.descricao || '',
+                  capitulo: item.capitulo || '',
+                  posicao: item.posicao || '',
+                  subposicao1: item.subposicao1 || '',
+                  subposicao2: item.subposicao2 || '',
+                  item1: item.item1 || '',
+                  item2: item.item2 || '',
                   valid: true
                 })),
                 totalCount: result.totalCount,
                 source: result.source
               };
-            } else if (this.empresaId && result?.error) {
-              return { success: false, error: result.error } as any;
+            } else if (result?.error) {
+              // Se há erro, retornar erro (não tentar local)
+              console.error('FocusProdutoService: Erro da API:', result.error);
+              return { 
+                success: false, 
+                error: typeof result.error === 'string' ? result.error : (result.error.mensagem || 'Erro na busca de NCMs')
+              } as any;
             }
           } else {
+            // Resposta não ok - verificar se é erro da API
+            const errorData = await response.json().catch(() => ({}));
+            if (this.empresaId) {
+              // Com empresaId, não usar dados locais
+              return {
+                success: false,
+                error: errorData?.error?.mensagem || `Erro ${response.status} na API FOCUS NFE`
+              } as any;
+            }
             console.warn('FocusProdutoService: Erro na resposta da API route NCM:', response.status);
           }
         } catch (error) {
           console.warn('FocusProdutoService: Erro na busca NCM via API route:', error);
+          if (this.empresaId) {
+            // Com empresaId, não usar dados locais
+            return {
+              success: false,
+              error: 'Erro de conexão com a API FOCUS NFE'
+            } as any;
+          }
         }
       } else {
         console.log('FocusProdutoService: Usando dados locais (API não configurada)');
       }
 
-      return this.buscarNCMsLocal(params);
+      // Sem empresaId ou sem token: usar dados locais como fallback
+      if (!this.empresaId) {
+        return this.buscarNCMsLocal(params);
+      }
+      
+      // Com empresaId mas sem token/config: retornar erro
+      return {
+        success: false,
+        error: 'FOCUS NFE não configurado para esta empresa'
+      } as any;
     } catch (error) {
       console.error('FocusProdutoService: Erro na busca de NCMs:', error);
       return {
@@ -421,33 +521,76 @@ class FocusProdutoService {
             : `/api/focus/cfops/${codigoCFOP}`;
           
           const response = await fetch(url, {
-        method: 'GET',
-        headers: {
+            method: 'GET',
+            headers: {
               'Content-Type': 'application/json',
             }
-      });
+          });
 
           if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
-          return {
+              return {
                 success: true,
                 data: [{
                   codigo: result.data.codigo,
-                  descricao: result.data.descricao,
+                  descricao: result.data.descricao || result.data.descricao_completa || '',
                   valid: true,
                   tipo: this.determinarTipoCFOP(result.data.codigo)
                 }]
               };
+            } else if (result?.error) {
+              // Se há erro, retornar erro (não tentar local)
+              console.error('FocusProdutoService: Erro da API:', result.error);
+              return { 
+                success: false, 
+                error: typeof result.error === 'string' ? result.error : (result.error.mensagem || 'Erro na consulta de CFOP')
+              } as any;
             }
+          } else {
+            // Resposta não ok - verificar se é erro da API
+            const errorData = await response.json().catch(() => ({}));
+            if (this.empresaId) {
+              // Com empresaId, não usar dados locais
+              return {
+                success: false,
+                error: errorData?.error?.mensagem || `Erro ${response.status} na API FOCUS NFE`
+              } as any;
+            }
+            console.warn('FocusProdutoService: Erro na resposta da API route CFOP:', response.status);
           }
         } catch (error) {
-          console.warn('Erro na consulta CFOP via API route:', error);
+          console.warn('FocusProdutoService: Erro na consulta CFOP via API route:', error);
+          if (this.empresaId) {
+            // Com empresaId, não usar dados locais
+            return {
+              success: false,
+              error: 'Erro de conexão com a API FOCUS NFE'
+            } as any;
+          }
         }
+      } else {
+        console.log('FocusProdutoService: Usando dados locais (API não configurada)');
       }
 
-      return this.consultarCFOPLocal(codigoCFOP);
+      // Sem empresaId ou sem token: usar dados locais como fallback
+      if (!this.empresaId) {
+        return this.consultarCFOPLocal(codigoCFOP);
+      }
+      
+      // Com empresaId mas sem token/config: retornar erro
+      return {
+        success: false,
+        error: 'FOCUS NFE não configurado para esta empresa'
+      } as any;
     } catch (error) {
+      console.error('FocusProdutoService: Erro na consulta de CFOP:', error);
+      if (this.empresaId) {
+        return {
+          success: false,
+          error: 'Erro na consulta do CFOP'
+        } as any;
+      }
       return {
         success: false,
         error: 'Erro na consulta do CFOP'
@@ -528,27 +671,57 @@ class FocusProdutoService {
                 success: true,
                 data: result.data.map((item: any) => ({
                   codigo: item.codigo,
-                  descricao: item.descricao,
+                  descricao: item.descricao || '',
                   valid: true,
                   tipo: this.determinarTipoCFOP(item.codigo)
                 })),
                 totalCount: result.totalCount,
                 source: result.source
               };
-            } else if (this.empresaId && result?.error) {
-              return { success: false, error: result.error } as any;
+            } else if (result?.error) {
+              // Se há erro, retornar erro (não tentar local)
+              console.error('FocusProdutoService: Erro da API:', result.error);
+              return { 
+                success: false, 
+                error: typeof result.error === 'string' ? result.error : (result.error.mensagem || 'Erro na busca de CFOPs')
+              } as any;
             }
           } else {
+            // Resposta não ok - verificar se é erro da API
+            const errorData = await response.json().catch(() => ({}));
+            if (this.empresaId) {
+              // Com empresaId, não usar dados locais
+              return {
+                success: false,
+                error: errorData?.error?.mensagem || `Erro ${response.status} na API FOCUS NFE`
+              } as any;
+            }
             console.warn('FocusProdutoService: Erro na resposta da API route CFOP:', response.status);
           }
         } catch (error) {
           console.warn('FocusProdutoService: Erro na busca CFOP via API route:', error);
+          if (this.empresaId) {
+            // Com empresaId, não usar dados locais
+            return {
+              success: false,
+              error: 'Erro de conexão com a API FOCUS NFE'
+            } as any;
+          }
         }
       } else {
         console.log('FocusProdutoService: Usando dados locais (API não configurada)');
       }
 
-      return this.buscarCFOPsLocal(params);
+      // Sem empresaId ou sem token: usar dados locais como fallback
+      if (!this.empresaId) {
+        return this.buscarCFOPsLocal(params);
+      }
+      
+      // Com empresaId mas sem token/config: retornar erro
+      return {
+        success: false,
+        error: 'FOCUS NFE não configurado para esta empresa'
+      } as any;
     } catch (error) {
       console.error('FocusProdutoService: Erro na busca de CFOPs:', error);
       return {
@@ -639,10 +812,26 @@ class FocusProdutoService {
   }
 
   // ===== CONSULTA DE CST =====
+  /**
+   * Busca CSTs localmente para seleção rápida na UI.
+   * 
+   * IMPORTANTE: A FOCUS NFE não fornece API para listar CSTs.
+   * Os CSTs são baseados em legislação tributária (tabelas estáticas).
+   * 
+   * Validação contextual acontece em:
+   * - validarProduto(): Valida CST no contexto completo (NCM+CFOP+Regime)
+   * - Emissão de NF: FOCUS NFE valida tudo na hora de emitir
+   * 
+   * ESTRATÉGIA HÍBRIDA:
+   * - Dados locais: Para UI/UX (seleção rápida)
+   * - API FOCUS NFE: Para validação contextual completa
+   * - Emissão NF: Validação final e definitiva
+   */
   async buscarCSTs(tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): Promise<FocusCSTResponse> {
     try {
-      // CSTs são baseados em legislação, não há API específica da FOCUS NFE
-        return this.buscarCSTsLocal(tipo);
+      // CSTs são baseados em legislação, não há API específica da FOCUS NFE para listagem
+      // A validação real acontece via validarProduto() que usa a API completa
+      return this.buscarCSTsLocal(tipo);
     } catch (error) {
       return {
         success: false,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { produtoSchema } from "@/lib/validations/produtoSchema";
@@ -31,6 +31,7 @@ import {
   CheckCircle,
   AlertCircle
 } from "lucide-react";
+import { ConsultaFIPE } from "./ConsultaFIPE";
 
 interface ModalProdutoProps {
   open: boolean;
@@ -68,7 +69,10 @@ export function ModalProdutoV2({
   const [calculos, setCalculos] = useState<any>(null);
 
   const { toast } = useToast();
-  const { categorias, loading: categoriasLoading } = useCategoriasProdutos(produto?.empresa_id || "");
+  // Usar empresaId da prop (prioritário) ou do produto (se editando)
+  const empresaIdParaCategorias = empresaId || produto?.empresa_id || "";
+  const { categorias, loading: categoriasLoading } = useCategoriasProdutos(empresaIdParaCategorias);
+  const valorFipeProcessadoRef = useRef<string | null>(null);
 
   const {
     register,
@@ -101,6 +105,73 @@ export function ModalProdutoV2({
   });
 
   const watchedValues = watch();
+
+  // Callback memoizado para evitar loops infinitos (depois de useForm para ter acesso a setValue)
+  const handleValorFipeConsultado = useCallback((valor: string, dados: any) => {
+    // Evitar processar o mesmo valor múltiplas vezes
+    const valorId = `${valor}-${dados?.Marca || dados?.brand || ''}-${dados?.Modelo || dados?.model || ''}`;
+    if (valorFipeProcessadoRef.current === valorId) {
+      return; // Já foi processado
+    }
+    valorFipeProcessadoRef.current = valorId;
+    
+    // Validar se valor existe e é string
+    if (!valor || typeof valor !== 'string') {
+      console.error('[ModalProdutoV2] Valor FIPE inválido:', valor);
+      toast({
+        title: "Erro ao aplicar valor FIPE",
+        description: "Valor não disponível ou em formato inválido",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Extrair apenas o número do valor (remover "R$ " e pontos)
+      const valorLimpo = valor
+        .replace('R$', '')
+        .replace(/\s/g, '')
+        .replace(/\./g, '')
+        .replace(',', '.')
+        .trim();
+      
+      const valorNumerico = parseFloat(valorLimpo);
+      
+      if (!isNaN(valorNumerico) && valorNumerico > 0) {
+        setValue('preco_venda', valorNumerico);
+        
+        // Extrair informações do veículo (com fallback para diferentes estruturas)
+        const marca = dados?.Marca || dados?.brand || dados?.marca || 'Veículo';
+        const modelo = dados?.Modelo || dados?.model || dados?.modelo || '';
+        const anoModelo = dados?.AnoModelo || dados?.year || dados?.anoModelo || dados?.Ano || '';
+        
+        if (marca && modelo && anoModelo) {
+          setValue('nome', `${marca} ${modelo} ${anoModelo}`);
+        } else if (marca && modelo) {
+          setValue('nome', `${marca} ${modelo}`);
+        }
+        
+        toast({
+          title: "Valor FIPE aplicado",
+          description: `Valor FIPE de ${valor} foi aplicado ao preço de venda`,
+        });
+      } else {
+        console.error('[ModalProdutoV2] Valor numérico inválido:', valorLimpo);
+        toast({
+          title: "Erro ao aplicar valor FIPE",
+          description: "Não foi possível converter o valor para número",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('[ModalProdutoV2] Erro ao processar valor FIPE:', error);
+      toast({
+        title: "Erro ao aplicar valor FIPE",
+        description: "Erro ao processar o valor retornado",
+        variant: "destructive",
+      });
+    }
+  }, [setValue, toast]);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -459,9 +530,15 @@ export function ModalProdutoV2({
                       <SelectItem value="loading" disabled>
                         <div className="flex items-center">
                           <LoadingSpinner size="sm" />
-                          <span className="ml-2">Carregando...</span>
+                          <span className="ml-2">Carregando categorias...</span>
                         </div>
                       </SelectItem>
+                    ) : categorias.length === 0 ? (
+                      <div className="px-2 py-6 text-center text-sm text-gray-500">
+                        <Package className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                        <p>Nenhuma categoria cadastrada</p>
+                        <p className="text-xs mt-1">Crie uma categoria na página de produtos</p>
+                      </div>
                     ) : (
                       categorias.map((categoria) => (
                         <SelectItem key={categoria.id} value={categoria.id}>
@@ -483,6 +560,15 @@ export function ModalProdutoV2({
                   </div>
                 )}
                 <p className="mt-1 text-xs text-gray-500">Use categorias para aplicar padrões fiscais e facilitar o cadastro.</p>
+
+                {/* Consulta FIPE para Veículo Usado */}
+                {watchedValues.categoria_id && categorias.find(c => c.id === watchedValues.categoria_id)?.nome === 'Veículo Usado' && (
+                  <div className="mt-4">
+                    <ConsultaFIPE
+                      onValorConsultado={handleValorFipeConsultado}
+                    />
+                  </div>
+                )}
               </div>
             </TabsContent>
 

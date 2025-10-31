@@ -71,16 +71,33 @@ export function SeletorCFOP({
     return () => clearTimeout(timeoutId);
   }, [searchTerm, filtroTipo]);
 
-  // Validar CFOP quando value muda
+  // Validar CFOP quando value muda (mas não se já está selecionado o mesmo código)
   useEffect(() => {
+    // Pular validação se o searchTerm corresponde ao value (significa que acabamos de selecionar)
+    if (value && value.length === 4 && searchTerm === value && selectedCFOP && selectedCFOP.codigo === value) {
+      // Acabamos de selecionar este CFOP, já está válido
+      setIsValid(true);
+      setValidationMessage("");
+      onValidate?.(true);
+      return;
+    }
+    
     if (value && value.length === 4) {
-      validateCFOP(value);
-    } else {
+      // Só validar se não for o mesmo código já selecionado
+      if (!selectedCFOP || selectedCFOP.codigo !== value) {
+        validateCFOP(value);
+      } else {
+        // Já temos este CFOP selecionado, manter como válido
+        setIsValid(true);
+        setValidationMessage("");
+        onValidate?.(true);
+      }
+    } else if (value && value.length > 0) {
       setIsValid(false);
       setValidationMessage("");
       onValidate?.(false);
     }
-  }, [value]);
+  }, [value, searchTerm]);
 
   // Atualizar filtro quando tipo muda
   useEffect(() => {
@@ -108,10 +125,23 @@ export function SeletorCFOP({
     if (searchTerm.length < 2) return;
     
     try {
-      const fetched = await buscarCFOPs({
-        descricao: searchTerm,
-        limit: 20
-      });
+      // Se o termo é um número de 4 dígitos, buscar por código
+      // Caso contrário, buscar por descrição
+      const isNumeric = /^\d{4}$/.test(searchTerm);
+      const searchParams = isNumeric 
+        ? { codigo: searchTerm, limit: 100 }
+        : { descricao: searchTerm, limit: 100 };
+      
+      const fetched = await buscarCFOPs(searchParams);
+      
+      // Se não retornou resultados e há erro no hook, mostrar mensagem de erro
+      if (fetched.length === 0 && errorCFOP) {
+        setIsValid(false);
+        setValidationMessage(errorCFOP);
+        onValidate?.(false);
+        return;
+      }
+      
       let filtered = fetched;
       if (filtroTipo !== 'TODOS') {
         filtered = fetched.filter((i) => i.tipo === filtroTipo);
@@ -127,9 +157,20 @@ export function SeletorCFOP({
         });
         setResults(ordered);
         setShowResults(true);
+        setIsValid(true);
+        setValidationMessage("");
+      } else {
+        // Se há erro no hook, mostrar mensagem de erro específica
+        const errorMsg = errorCFOP || "Nenhum CFOP encontrado. Verifique se a integração FOCUS NFE está ativa.";
+        setIsValid(false);
+        setValidationMessage(errorMsg);
+        onValidate?.(false);
       }
     } catch (error) {
       console.error("Erro ao buscar CFOPs:", error);
+      setIsValid(false);
+      setValidationMessage("Erro ao buscar CFOPs. Verifique a configuração da integração FOCUS NFE.");
+      onValidate?.(false);
     }
   };
 
@@ -143,36 +184,58 @@ export function SeletorCFOP({
 
     try {
       const cfopData = await consultarCFOP(codigo);
+      
+      // Se não encontrou e há erro no hook, mostrar mensagem de erro
+      if (!cfopData && errorCFOP) {
+        setIsValid(false);
+        setValidationMessage(errorCFOP);
+        onValidate?.(false);
+        return;
+      }
+      
       if (cfopData) {
         setSelectedCFOP(cfopData);
         setIsValid(true);
         setValidationMessage("");
         onValidate?.(true);
       } else {
+        // Se há erro no hook, mostrar mensagem de erro específica
+        const errorMsg = errorCFOP || "CFOP não encontrado. Verifique se a integração FOCUS NFE está ativa.";
         setIsValid(false);
-        setValidationMessage("CFOP não encontrado");
+        setValidationMessage(errorMsg);
         onValidate?.(false);
       }
     } catch (error) {
       setIsValid(false);
-      setValidationMessage("Erro ao validar CFOP");
+      setValidationMessage("Erro ao validar CFOP. Verifique a configuração da integração FOCUS NFE.");
       onValidate?.(false);
     }
   };
 
   const handleCFOPSelect = (cfop: FocusCFOPData) => {
+    // Quando seleciona da lista, o item já foi validado pela busca
+    // Não precisa fazer nova validação - aceitar diretamente
     setSelectedCFOP(cfop);
     setSearchTerm(cfop.codigo);
     setValue(cfop.codigo);
-    onChange(cfop);
     setShowResults(false);
     setIsValid(true);
     setValidationMessage("");
+    // Chamar onChange e onValidate ANTES de atualizar o valor do input
+    // Isso evita que o useEffect dispare validação desnecessária
+    onChange(cfop);
     onValidate?.(true);
+    
+    // Atualizar o input após o onChange para evitar conflitos
+    if (inputRef.current) {
+      inputRef.current.value = cfop.codigo;
+    }
   };
 
   const setValue = (codigo: string) => {
-    if (inputRef.current) {
+    // Não atualizar o input se já tem o mesmo valor
+    // Isso evita disparar handleInputChange desnecessariamente
+    if (inputRef.current && inputRef.current.value !== codigo) {
       inputRef.current.value = codigo;
     }
   };
@@ -182,8 +245,16 @@ export function SeletorCFOP({
     setSearchTerm(newValue);
     setValue(newValue);
     
+    // Se já tem um CFOP selecionado e o código mudou, limpar seleção
+    if (selectedCFOP && selectedCFOP.codigo !== newValue) {
+      setSelectedCFOP(null);
+    }
+    
     if (newValue.length === 4) {
-      validateCFOP(newValue);
+      // Validar apenas se não for o mesmo código já selecionado
+      if (!selectedCFOP || selectedCFOP.codigo !== newValue) {
+        validateCFOP(newValue);
+      }
     } else {
       setIsValid(false);
       setValidationMessage("");

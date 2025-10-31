@@ -117,7 +117,7 @@ export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
     } finally {
       setLoadingNCM(false);
     }
-  }, []);
+  }, [empresaId]);
 
   const buscarCFOPs = useCallback(async (params: {
     codigo?: string;
@@ -146,7 +146,7 @@ export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
     } finally {
       setLoadingCFOP(false);
     }
-  }, []);
+  }, [empresaId]);
 
   const buscarCSTs = useCallback(async (tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS'): Promise<CSTItem[]> => {
     try {
@@ -194,7 +194,7 @@ export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
     } finally {
       setLoadingNCM(false);
     }
-  }, []);
+  }, [empresaId]);
 
   const consultarCFOP = useCallback(async (codigo: string): Promise<CFOPItem | null> => {
     try {
@@ -218,7 +218,7 @@ export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
     } finally {
       setLoadingCFOP(false);
     }
-  }, []);
+  }, [empresaId]);
 
   const validarProduto = useCallback(async (produtoData: any): Promise<{
     valid: boolean;
@@ -250,7 +250,7 @@ export function useFocusNFE(empresaId?: string): UseFocusNFEReturn {
         warnings: []
       };
     }
-  }, []);
+  }, [empresaId]);
 
   return {
     loadingNCM,

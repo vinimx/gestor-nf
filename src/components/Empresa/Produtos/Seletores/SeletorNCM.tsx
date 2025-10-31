@@ -66,16 +66,33 @@ export function SeletorNCM({
     return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
-  // Validar NCM quando value muda
+  // Validar NCM quando value muda (mas não se já está selecionado o mesmo código)
   useEffect(() => {
+    // Pular validação se o searchTerm corresponde ao value (significa que acabamos de selecionar)
+    if (value && value.length === 8 && searchTerm === value && selectedNCM && selectedNCM.codigo === value) {
+      // Acabamos de selecionar este NCM, já está válido
+      setIsValid(true);
+      setValidationMessage("");
+      onValidate?.(true);
+      return;
+    }
+    
     if (value && value.length === 8) {
-      validateNCM(value);
-    } else {
+      // Só validar se não for o mesmo código já selecionado
+      if (!selectedNCM || selectedNCM.codigo !== value) {
+        validateNCM(value);
+      } else {
+        // Já temos este NCM selecionado, manter como válido
+        setIsValid(true);
+        setValidationMessage("");
+        onValidate?.(true);
+      }
+    } else if (value && value.length > 0) {
       setIsValid(false);
       setValidationMessage("");
       onValidate?.(false);
     }
-  }, [value]);
+  }, [value, searchTerm]);
 
   // Fechar resultados ao clicar fora
   useEffect(() => {
@@ -98,10 +115,23 @@ export function SeletorNCM({
     if (searchTerm.length < 2) return;
     
     try {
-      const fetched = await buscarNCMs({
-        descricao: searchTerm,
-        limit: 20
-      });
+      // Se o termo é um número de 8 dígitos, buscar por código
+      // Caso contrário, buscar por descrição
+      const isNumeric = /^\d{8}$/.test(searchTerm);
+      const searchParams = isNumeric 
+        ? { codigo: searchTerm, limit: 100 }
+        : { descricao: searchTerm, limit: 100 };
+      
+      const fetched = await buscarNCMs(searchParams);
+      
+      // Se não retornou resultados e há erro no hook, mostrar mensagem de erro
+      if (fetched.length === 0 && errorNCM) {
+        setIsValid(false);
+        setValidationMessage(errorNCM);
+        onValidate?.(false);
+        return;
+      }
+      
       if (fetched.length > 0) {
         // Ordenar resultados: código que começa com o termo tem prioridade
         const ordered = [...fetched].sort((a, b) => {
@@ -115,9 +145,20 @@ export function SeletorNCM({
         });
         setResults(ordered);
         setShowResults(true);
+        setIsValid(true);
+        setValidationMessage("");
+      } else {
+        // Se há erro no hook, mostrar mensagem de erro específica
+        const errorMsg = errorNCM || "Nenhum NCM encontrado. Verifique se a integração FOCUS NFE está ativa.";
+        setIsValid(false);
+        setValidationMessage(errorMsg);
+        onValidate?.(false);
       }
     } catch (error) {
       console.error("Erro ao buscar NCMs:", error);
+      setIsValid(false);
+      setValidationMessage("Erro ao buscar NCMs. Verifique a configuração da integração FOCUS NFE.");
+      onValidate?.(false);
     }
   };
 
@@ -131,36 +172,58 @@ export function SeletorNCM({
 
     try {
       const ncmData = await consultarNCM(codigo);
+      
+      // Se não encontrou e há erro no hook, mostrar mensagem de erro
+      if (!ncmData && errorNCM) {
+        setIsValid(false);
+        setValidationMessage(errorNCM);
+        onValidate?.(false);
+        return;
+      }
+      
       if (ncmData) {
         setSelectedNCM(ncmData);
         setIsValid(true);
         setValidationMessage("");
         onValidate?.(true);
       } else {
+        // Se há erro no hook, mostrar mensagem de erro específica
+        const errorMsg = errorNCM || "NCM não encontrado. Verifique se a integração FOCUS NFE está ativa.";
         setIsValid(false);
-        setValidationMessage("NCM não encontrado");
+        setValidationMessage(errorMsg);
         onValidate?.(false);
       }
     } catch (error) {
       setIsValid(false);
-      setValidationMessage("Erro ao validar NCM");
+      setValidationMessage("Erro ao validar NCM. Verifique a configuração da integração FOCUS NFE.");
       onValidate?.(false);
     }
   };
 
   const handleNCMSelect = (ncm: FocusNCMData) => {
+    // Quando seleciona da lista, o item já foi validado pela busca
+    // Não precisa fazer nova validação - aceitar diretamente
     setSelectedNCM(ncm);
     setSearchTerm(ncm.codigo);
     setValue(ncm.codigo);
-    onChange(ncm);
     setShowResults(false);
     setIsValid(true);
     setValidationMessage("");
+    // Chamar onChange e onValidate ANTES de atualizar o valor do input
+    // Isso evita que o useEffect dispare validação desnecessária
+    onChange(ncm);
     onValidate?.(true);
+    
+    // Atualizar o input após o onChange para evitar conflitos
+    if (inputRef.current) {
+      inputRef.current.value = ncm.codigo;
+    }
   };
 
   const setValue = (codigo: string) => {
-    if (inputRef.current) {
+    // Não atualizar o input se já tem o mesmo valor
+    // Isso evita disparar handleInputChange desnecessariamente
+    if (inputRef.current && inputRef.current.value !== codigo) {
       inputRef.current.value = codigo;
     }
   };
@@ -170,8 +233,16 @@ export function SeletorNCM({
     setSearchTerm(newValue);
     setValue(newValue);
     
+    // Se já tem um NCM selecionado e o código mudou, limpar seleção
+    if (selectedNCM && selectedNCM.codigo !== newValue) {
+      setSelectedNCM(null);
+    }
+    
     if (newValue.length === 8) {
-      validateNCM(newValue);
+      // Validar apenas se não for o mesmo código já selecionado
+      if (!selectedNCM || selectedNCM.codigo !== newValue) {
+        validateNCM(newValue);
+      }
     } else {
       setIsValid(false);
       setValidationMessage("");

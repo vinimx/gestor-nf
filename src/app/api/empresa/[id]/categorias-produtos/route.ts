@@ -42,7 +42,11 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(categorias || []);
+    // Retornar no formato esperado pelo hook
+    return NextResponse.json({
+      success: true,
+      data: categorias || []
+    });
 
   } catch (error) {
     console.error('Erro na API de categorias:', error);
