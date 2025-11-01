@@ -52,16 +52,33 @@ export const produtoSchema = z.object({
   // Impostos
   aliquota_icms: z.coerce.number()
     .min(0, 'Alíquota ICMS deve ser positiva')
-    .max(100, 'Alíquota ICMS não pode ser maior que 100%'),
+    .max(100, 'Alíquota ICMS não pode ser maior que 100%')
+    .default(0),
   aliquota_ipi: z.coerce.number()
     .min(0, 'Alíquota IPI deve ser positiva')
-    .max(100, 'Alíquota IPI não pode ser maior que 100%'),
+    .max(100, 'Alíquota IPI não pode ser maior que 100%')
+    .default(0)
+    .optional(),
   aliquota_pis: z.coerce.number()
     .min(0, 'Alíquota PIS deve ser positiva')
-    .max(100, 'Alíquota PIS não pode ser maior que 100%'),
+    .max(100, 'Alíquota PIS não pode ser maior que 100%')
+    .default(0)
+    .optional(),
   aliquota_cofins: z.coerce.number()
     .min(0, 'Alíquota COFINS deve ser positiva')
-    .max(100, 'Alíquota COFINS não pode ser maior que 100%'),
+    .max(100, 'Alíquota COFINS não pode ser maior que 100%')
+    .default(0)
+    .optional(),
+  aliquota_ibs_cbs: z.coerce.number()
+    .min(0, 'Alíquota IBS/CBS deve ser positiva')
+    .max(100, 'Alíquota IBS/CBS não pode ser maior que 100%')
+    .default(0)
+    .optional(),
+  
+  // Observações do produto
+  observacoes: z.string()
+    .max(500, 'Observações não podem exceder 500 caracteres')
+    .optional(),
   
   // Configurações ICMS
   icms_situacao_tributaria: z.string()
@@ -83,13 +100,16 @@ export const produtoSchema = z.object({
   
   // Configurações IPI
   ipi_codigo_enquadramento: z.string()
-    .max(3, 'Código enquadramento IPI deve ter no máximo 3 caracteres'),
+    .max(3, 'Código enquadramento IPI deve ter no máximo 3 caracteres')
+    .default('999')
+    .optional(),
   cst_ipi: z.string()
     .regex(/^\d{2}$/, 'CST IPI deve ter 2 dígitos')
     .optional(),
   ipi_situacao_tributaria: z.string()
     .length(2, 'Situação tributária IPI deve ter 2 dígitos')
-    .default('00'),
+    .default('00')
+    .optional(),
   
   // Configurações PIS/COFINS
   pis_situacao_tributaria: z.string()
@@ -114,10 +134,10 @@ export const produtoUpdateSchema = produtoSchema.partial().extend({
 
 // Schema para query de produtos
 export const produtoQuerySchema = z.object({
-  search: z.string().optional(),
-  tipo: z.enum(['PRODUTO', 'SERVICO']).optional(),
-  categoria_id: z.string().uuid().optional(),
-  ativo: z.boolean().optional(),
+  search: z.string().optional().nullable(),
+  tipo: z.enum(['PRODUTO', 'SERVICO']).optional().nullable(),
+  categoria_id: z.string().optional().nullable(),
+  ativo: z.boolean().optional().nullable(),
   limit: z.coerce.number().min(1).max(100).default(20),
   offset: z.coerce.number().min(0).default(0),
   sort: z.string().default('nome'),

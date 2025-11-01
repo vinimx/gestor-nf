@@ -5,15 +5,11 @@ import { useFocusNFE } from "@/hooks/useFocusNFE";
 import { FocusCFOPData } from "@/types/produto";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { 
   CheckCircle, 
   XCircle, 
-  Search, 
-  AlertCircle,
-  Filter
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +19,6 @@ interface SeletorCFOPProps {
   tipo: 'ENTRADA' | 'SAIDA';
   operacao?: string;
   onValidate?: (valid: boolean) => void;
-  placeholder?: string;
   disabled?: boolean;
   className?: string;
   empresaId?: string;
@@ -35,7 +30,6 @@ export function SeletorCFOP({
   tipo,
   operacao,
   onValidate,
-  placeholder = "Digite o código CFOP...",
   disabled = false,
   className,
   empresaId,
@@ -70,6 +64,18 @@ export function SeletorCFOP({
 
     return () => clearTimeout(timeoutId);
   }, [searchTerm, filtroTipo]);
+
+  // Sincronizar searchTerm com value externo (importante para manter valor ao trocar de aba)
+  useEffect(() => {
+    // Evitar loop: só atualizar se realmente diferente E não estiver vazio
+    if (value && value.length === 4 && searchTerm !== value) {
+      setSearchTerm(value);
+      // Atualizar o input visual também
+      if (inputRef.current && inputRef.current.value !== value) {
+        inputRef.current.value = value;
+      }
+    }
+  }, [value]); // Não incluir searchTerm na dependência para evitar loop
 
   // Validar CFOP quando value muda (mas não se já está selecionado o mesmo código)
   useEffect(() => {
@@ -134,14 +140,7 @@ export function SeletorCFOP({
       
       const fetched = await buscarCFOPs(searchParams);
       
-      // Se não retornou resultados e há erro no hook, mostrar mensagem de erro
-      if (fetched.length === 0 && errorCFOP) {
-        setIsValid(false);
-        setValidationMessage(errorCFOP);
-        onValidate?.(false);
-        return;
-      }
-      
+      // Não exibir mensagem de erro, apenas processar resultados silenciosamente
       let filtered = fetched;
       if (filtroTipo !== 'TODOS') {
         filtered = fetched.filter((i) => i.tipo === filtroTipo);
@@ -160,16 +159,20 @@ export function SeletorCFOP({
         setIsValid(true);
         setValidationMessage("");
       } else {
-        // Se há erro no hook, mostrar mensagem de erro específica
-        const errorMsg = errorCFOP || "Nenhum CFOP encontrado. Verifique se a integração FOCUS NFE está ativa.";
+        // Não exibir mensagem de erro, apenas limpar resultados
+        setResults([]);
+        setShowResults(false);
         setIsValid(false);
-        setValidationMessage(errorMsg);
+        setValidationMessage("");
         onValidate?.(false);
       }
     } catch (error) {
-      console.error("Erro ao buscar CFOPs:", error);
+      // Log silencioso, sem mensagem ao usuário
+      console.debug("Busca CFOP sem resultados:", error);
+      setResults([]);
+      setShowResults(false);
       setIsValid(false);
-      setValidationMessage("Erro ao buscar CFOPs. Verifique a configuração da integração FOCUS NFE.");
+      setValidationMessage("");
       onValidate?.(false);
     }
   };
@@ -177,7 +180,7 @@ export function SeletorCFOP({
   const validateCFOP = async (codigo: string) => {
     if (codigo.length !== 4) {
       setIsValid(false);
-      setValidationMessage("CFOP deve ter 4 dígitos");
+      setValidationMessage("");
       onValidate?.(false);
       return;
     }
@@ -185,29 +188,23 @@ export function SeletorCFOP({
     try {
       const cfopData = await consultarCFOP(codigo);
       
-      // Se não encontrou e há erro no hook, mostrar mensagem de erro
-      if (!cfopData && errorCFOP) {
-        setIsValid(false);
-        setValidationMessage(errorCFOP);
-        onValidate?.(false);
-        return;
-      }
-      
       if (cfopData) {
         setSelectedCFOP(cfopData);
         setIsValid(true);
         setValidationMessage("");
+        onChange(cfopData);
         onValidate?.(true);
       } else {
-        // Se há erro no hook, mostrar mensagem de erro específica
-        const errorMsg = errorCFOP || "CFOP não encontrado. Verifique se a integração FOCUS NFE está ativa.";
+        // Não exibir mensagem de erro, apenas marcar como inválido
         setIsValid(false);
-        setValidationMessage(errorMsg);
+        setValidationMessage("");
         onValidate?.(false);
       }
     } catch (error) {
+      // Log silencioso, sem mensagem ao usuário
+      console.debug("Validação CFOP sem resultado:", error);
       setIsValid(false);
-      setValidationMessage("Erro ao validar CFOP. Verifique a configuração da integração FOCUS NFE.");
+      setValidationMessage("");
       onValidate?.(false);
     }
   };
@@ -304,23 +301,112 @@ export function SeletorCFOP({
     return tipo === 'ENTRADA' ? 'text-blue-600 bg-blue-50' : 'text-green-600 bg-green-50';
   };
 
+  // Contar resultados por tipo
+  const getResultadosPorTipo = () => {
+    if (!results || results.length === 0) return { todos: 0, entrada: 0, saida: 0 };
+    
+    return {
+      todos: results.length,
+      entrada: results.filter(r => r.tipo === 'ENTRADA').length,
+      saida: results.filter(r => r.tipo === 'SAIDA').length,
+    };
+  };
+
+  const contadores = getResultadosPorTipo();
+
+  // Placeholder dinâmico baseado no filtro
+  const getPlaceholder = () => {
+    switch (filtroTipo) {
+      case 'TODOS':
+        return "Digite o código ou descrição do CFOP...";
+      case 'ENTRADA':
+        return "Ex: 1102 (Compra para comercialização)...";
+      case 'SAIDA':
+        return "Ex: 5102 (Venda de mercadoria)...";
+      default:
+        return "Digite o código CFOP...";
+    }
+  };
+
   return (
-    <div className={cn("space-y-2", className)}>
-      <div className="flex items-center justify-between">
-        <Label htmlFor="cfop">CFOP (Código Fiscal de Operações e Prestações)</Label>
-        <div className="flex items-center space-x-2">
-          <Filter className="h-4 w-4 text-gray-500" />
-          <Select value={filtroTipo} onValueChange={(value: 'ENTRADA' | 'SAIDA' | 'TODOS') => setFiltroTipo(value)}>
-            <SelectTrigger className="w-32 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="TODOS">Todos</SelectItem>
-              <SelectItem value="ENTRADA">Entrada</SelectItem>
-              <SelectItem value="SAIDA">Saída</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+    <div className={cn("space-y-3", className)}>
+      <Label htmlFor="cfop" className="text-sm font-medium text-gray-700">
+        CFOP (Código Fiscal de Operações e Prestações)
+      </Label>
+      
+      {/* Filtro de Tipo - Tabs Visuais Modernos */}
+      <div className="inline-flex items-center gap-1 p-1 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-lg shadow-sm">
+        <button
+          type="button"
+          onClick={() => setFiltroTipo('TODOS')}
+          className={cn(
+            "relative px-4 py-2.5 text-sm font-medium rounded-md transition-all duration-200 ease-in-out",
+            filtroTipo === 'TODOS'
+              ? "bg-white text-gray-900 shadow-md ring-1 ring-gray-900/10 scale-105"
+              : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full transition-all duration-200",
+              filtroTipo === 'TODOS' ? "bg-gray-500 shadow-sm" : "bg-gray-400"
+            )}></div>
+            <span>Todos</span>
+            {contadores.todos > 0 && filtroTipo === 'TODOS' && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs font-semibold bg-gray-200 text-gray-700 rounded-full">
+                {contadores.todos}
+              </span>
+            )}
+          </span>
+        </button>
+        
+        <button
+          type="button"
+          onClick={() => setFiltroTipo('ENTRADA')}
+          className={cn(
+            "relative px-4 py-2.5 text-sm font-medium rounded-md transition-all duration-200 ease-in-out",
+            filtroTipo === 'ENTRADA'
+              ? "bg-white text-blue-700 shadow-md ring-1 ring-blue-200 scale-105"
+              : "text-gray-600 hover:text-blue-600 hover:bg-white/50"
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full transition-all duration-200",
+              filtroTipo === 'ENTRADA' ? "bg-blue-500 shadow-sm" : "bg-blue-400"
+            )}></div>
+            <span>📥 Entrada</span>
+            {contadores.entrada > 0 && filtroTipo === 'ENTRADA' && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs font-semibold bg-blue-100 text-blue-700 rounded-full">
+                {contadores.entrada}
+              </span>
+            )}
+          </span>
+        </button>
+        
+        <button
+          type="button"
+          onClick={() => setFiltroTipo('SAIDA')}
+          className={cn(
+            "relative px-4 py-2.5 text-sm font-medium rounded-md transition-all duration-200 ease-in-out",
+            filtroTipo === 'SAIDA'
+              ? "bg-white text-green-700 shadow-md ring-1 ring-green-200 scale-105"
+              : "text-gray-600 hover:text-green-600 hover:bg-white/50"
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full transition-all duration-200",
+              filtroTipo === 'SAIDA' ? "bg-green-500 shadow-sm" : "bg-green-400"
+            )}></div>
+            <span>📤 Saída</span>
+            {contadores.saida > 0 && filtroTipo === 'SAIDA' && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs font-semibold bg-green-100 text-green-700 rounded-full">
+                {contadores.saida}
+              </span>
+            )}
+          </span>
+        </button>
       </div>
       
       <div className="relative">
@@ -329,7 +415,7 @@ export function SeletorCFOP({
             ref={inputRef}
             id="cfop"
             type="text"
-            placeholder={placeholder}
+            placeholder={getPlaceholder()}
             disabled={disabled}
             onChange={handleInputChange}
             onFocus={handleInputFocus}
@@ -368,25 +454,50 @@ export function SeletorCFOP({
                     {results.map((item) => (
                       <div
                         key={item.codigo}
-                        className="px-3 py-2 cursor-pointer hover:bg-gray-50"
+                        className={cn(
+                          "px-3 py-2.5 cursor-pointer transition-all duration-150",
+                          "hover:bg-gradient-to-r",
+                          item.tipo === 'ENTRADA' 
+                            ? "hover:from-blue-50 hover:to-blue-50/50 border-l-2 border-transparent hover:border-blue-400" 
+                            : "hover:from-green-50 hover:to-green-50/50 border-l-2 border-transparent hover:border-green-400",
+                          item.codigo === searchTerm && (
+                            item.tipo === 'ENTRADA' ? "bg-blue-50/50 border-l-blue-500" : "bg-green-50/50 border-l-green-500"
+                          )
+                        )}
                         onClick={() => handleCFOPSelect(item)}
                       >
-                        <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center space-x-2">
-                              <div className="font-mono text-sm font-medium text-blue-600">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className={cn(
+                                "font-mono text-sm font-bold px-2 py-0.5 rounded",
+                                item.tipo === 'ENTRADA' 
+                                  ? "text-blue-700 bg-blue-100" 
+                                  : "text-green-700 bg-green-100"
+                              )}>
                                 {item.codigo}
                               </div>
-                              <span className={cn("px-2 py-0.5 rounded text-xs", getTipoColor(item.tipo))}>
-                                {getTipoLabel(item.tipo)}
+                              <span className={cn(
+                                "px-2 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1",
+                                item.tipo === 'ENTRADA' 
+                                  ? "bg-blue-500 text-white" 
+                                  : "bg-green-500 text-white"
+                              )}>
+                                <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
+                                {item.tipo === 'ENTRADA' ? '📥 Entrada' : '📤 Saída'}
                               </span>
                             </div>
-                            <div className="text-sm text-gray-700 line-clamp-2">
+                            <div className="text-sm text-gray-700 leading-relaxed">
                               {item.descricao}
                             </div>
                           </div>
                           {item.codigo === searchTerm && (
-                            <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                            <div className="flex-shrink-0">
+                              <CheckCircle className={cn(
+                                "h-5 w-5",
+                                item.tipo === 'ENTRADA' ? "text-blue-500" : "text-green-500"
+                              )} />
+                            </div>
                           )}
                         </div>
                       </div>
@@ -399,26 +510,25 @@ export function SeletorCFOP({
         )}
       </div>
 
-      {/* Ajuda contextual */}
-      <p className="text-xs text-gray-500">Digite 4 dígitos ou pesquise pela descrição. Use o filtro Entrada/Saída.</p>
-
-      {/* Mensagem de validação */}
-      {!isValid && validationMessage && (
+      {/* Ajuda contextual por tipo de filtro */}
+      <div className="flex items-start gap-2 text-xs">
         <div className={cn(
-          "text-sm",
-          isValid ? "text-green-600" : "text-red-600"
+          "px-2.5 py-1.5 rounded-md border transition-all duration-200",
+          filtroTipo === 'TODOS' ? "bg-gray-50 border-gray-200 text-gray-700" :
+          filtroTipo === 'ENTRADA' ? "bg-blue-50 border-blue-200 text-blue-700" :
+          "bg-green-50 border-green-200 text-green-700"
         )}>
-          {validationMessage}
+          <span className="font-medium">
+            {filtroTipo === 'TODOS' && "📋 Mostrando todos os CFOPs"}
+            {filtroTipo === 'ENTRADA' && "📥 Apenas CFOPs de Entrada (compras, devoluções recebidas)"}
+            {filtroTipo === 'SAIDA' && "📤 Apenas CFOPs de Saída (vendas, devoluções enviadas)"}
+          </span>
         </div>
-      )}
-
-      {/* Erro da API */}
-      {errorCFOP && (
-        <div className="text-sm text-yellow-600">
-          <AlertCircle className="inline h-4 w-4 mr-1" />
-          {errorCFOP}
-        </div>
-      )}
+      </div>
+      
+      <p className="text-xs text-gray-500">
+        Digite 4 dígitos ou pesquise pela descrição da operação.
+      </p>
 
       {/* Informações do CFOP selecionado */}
       {selectedCFOP && isValid && (

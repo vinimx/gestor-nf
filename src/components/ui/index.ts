@@ -41,6 +41,8 @@ export {
   DropdownMenuRadioGroup,
 } from "./dropdown-menu";
 export { Input } from "./input";
+export { InputValorMonetario } from "./input-valor-monetario";
+export { InputAliquota } from "./input-aliquota";
 export { Label } from "./label";
 export {
   Select,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { produtoSchema } from "@/lib/validations/produtoSchema";
@@ -10,13 +10,14 @@ import {
   SeletorNCM, 
   SeletorCFOP, 
   SeletorCST, 
-  CalculadoraImpostos, 
-  ValidadorFiscal 
+  CalculadoraImpostos
 } from "./Seletores";
 import { FocusNCMData, FocusCFOPData, FocusCSTData } from "@/types/produto";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InputValorMonetario } from "@/components/ui/input-valor-monetario";
+import { InputAliquota } from "@/components/ui/input-aliquota";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,7 +29,6 @@ import {
   Calculator,
   Shield,
   Settings,
-  CheckCircle,
   AlertCircle
 } from "lucide-react";
 import { ConsultaFIPE } from "./ConsultaFIPE";
@@ -64,8 +64,7 @@ export function ModalProdutoV2({
   const [cstPISData, setCSTPISData] = useState<FocusCSTData | null>(null);
   const [cstCOFINSData, setCSTCOFINSData] = useState<FocusCSTData | null>(null);
   
-  // Estados de validação
-  const [validationResult, setValidationResult] = useState<any>(null);
+  // Estados de cálculos
   const [calculos, setCalculos] = useState<any>(null);
 
   const { toast } = useToast();
@@ -77,14 +76,16 @@ export function ModalProdutoV2({
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isValid, isDirty },
     reset,
     watch,
     setValue,
     setError,
     clearErrors,
+    trigger,
   } = useForm({
     resolver: zodResolver(produtoSchema),
+    mode: "onChange", // Validar em tempo real
     defaultValues: {
       tipo: "PRODUTO" as const,
       unidade: "UN" as const,
@@ -94,10 +95,13 @@ export function ModalProdutoV2({
       aliquota_ipi: 0,
       aliquota_pis: 0,
       aliquota_cofins: 0,
+      aliquota_ibs_cbs: 0,
+      observacoes: "",
       icms_situacao_tributaria: "00",
       icms_origem: "0",
       icms_modalidade_base_calculo: "0",
       icms_reducao_base_calculo: 0,
+      ipi_codigo_enquadramento: "999",
       ipi_situacao_tributaria: "00",
       pis_situacao_tributaria: "01",
       cofins_situacao_tributaria: "01",
@@ -105,6 +109,28 @@ export function ModalProdutoV2({
   });
 
   const watchedValues = watch();
+
+  // Estabilizar objeto produto para evitar re-renders infinitos na CalculadoraImpostos
+  const produtoParaCalculo = useMemo(() => ({
+    ...watchedValues,
+    preco_venda: Number(watchedValues.preco_venda) || 0,
+    custo: watchedValues.custo ? Number(watchedValues.custo) : undefined,
+    aliquota_icms: Number(watchedValues.aliquota_icms) || 0,
+    aliquota_ipi: watchedValues.aliquota_ipi ? Number(watchedValues.aliquota_ipi) : undefined,
+    aliquota_pis: watchedValues.aliquota_pis ? Number(watchedValues.aliquota_pis) : undefined,
+    aliquota_cofins: watchedValues.aliquota_cofins ? Number(watchedValues.aliquota_cofins) : undefined,
+    aliquota_ibs_cbs: watchedValues.aliquota_ibs_cbs ? Number(watchedValues.aliquota_ibs_cbs) : undefined,
+    icms_reducao_base_calculo: watchedValues.icms_reducao_base_calculo ? Number(watchedValues.icms_reducao_base_calculo) : undefined,
+  }), [
+    watchedValues.preco_venda,
+    watchedValues.custo,
+    watchedValues.aliquota_icms,
+    watchedValues.aliquota_ipi,
+    watchedValues.aliquota_pis,
+    watchedValues.aliquota_cofins,
+    watchedValues.aliquota_ibs_cbs,
+    watchedValues.icms_reducao_base_calculo,
+  ]);
 
   // Callback memoizado para evitar loops infinitos (depois de useForm para ter acesso a setValue)
   const handleValorFipeConsultado = useCallback((valor: string, dados: any) => {
@@ -188,6 +214,8 @@ export function ModalProdutoV2({
           aliquota_ipi: produto.aliquota_ipi || 0,
           aliquota_pis: produto.aliquota_pis || 0,
           aliquota_cofins: produto.aliquota_cofins || 0,
+          aliquota_ibs_cbs: produto.aliquota_ibs_cbs || 0,
+          observacoes: produto.observacoes || "",
           icms_situacao_tributaria: produto.icms_situacao_tributaria || "00",
           icms_origem: produto.icms_origem || "0",
           icms_modalidade_base_calculo: produto.icms_modalidade_base_calculo || "0",
@@ -207,6 +235,8 @@ export function ModalProdutoV2({
           aliquota_ipi: 0,
           aliquota_pis: 0,
           aliquota_cofins: 0,
+          aliquota_ibs_cbs: 0,
+          observacoes: "",
           icms_situacao_tributaria: "00",
           icms_origem: "0",
           icms_modalidade_base_calculo: "0",
@@ -225,7 +255,6 @@ export function ModalProdutoV2({
       setCSTIPIData(null);
       setCSTPISData(null);
       setCSTCOFINSData(null);
-      setValidationResult(null);
       setCalculos(null);
       setActiveTab("basico");
     }
@@ -274,15 +303,19 @@ export function ModalProdutoV2({
     clearErrors("cofins_situacao_tributaria");
   };
 
-  const handleValidationChange = (result: any) => {
-    setValidationResult(result);
-  };
-
-  const handleCalculationChange = (calculos: any) => {
+  const handleCalculationChange = useCallback((calculos: any) => {
     setCalculos(calculos);
-  };
+  }, []);
 
   const onSubmitForm = async (data: any) => {
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('[ModalProdutoV2] 🔄 Iniciando submit do formulário');
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('[DEBUG] 1. Dados do formulário:', data);
+    console.log('[DEBUG] 2. Erros de validação:', errors);
+    console.log('[DEBUG] 3. isValid:', isValid);
+    console.log('[DEBUG] 4. isDirty:', isDirty);
+    
     try {
       setLoading(true);
       
@@ -290,18 +323,20 @@ export function ModalProdutoV2({
       const produtoData = {
         ...data,
         empresa_id: produto?.empresa_id,
-        ncm_validado: !!ncmData,
-        cfop_validado: !!(cfopSaidaData && cfopEntradaData),
-        cst_validado: !!(cstICMSData && cstIPIData && cstPISData && cstCOFINSData),
-        ultima_validacao: new Date().toISOString(),
       };
 
+      console.log('[DEBUG] 5. Dados preparados para envio:', produtoData);
+
       if (produto) {
+        console.log('[DEBUG] 6. Modo: ATUALIZAÇÃO');
         await onSubmit({ ...produtoData, id: produto.id } as ProdutoUpdate);
       } else {
+        console.log('[DEBUG] 6. Modo: CRIAÇÃO');
         await onSubmit(produtoData as ProdutoCreate);
       }
 
+      console.log('[DEBUG] 7. ✅ Produto salvo com sucesso!');
+      
       toast({
         title: "Sucesso",
         description: produto ? "Produto atualizado com sucesso!" : "Produto criado com sucesso!",
@@ -311,7 +346,13 @@ export function ModalProdutoV2({
       onSuccess();
       onOpenChange(false);
     } catch (error: any) {
-      console.error("Erro ao salvar produto:", error);
+      console.error('═══════════════════════════════════════════════════════');
+      console.error("[DEBUG] ❌ Erro ao salvar produto:");
+      console.error("[DEBUG] Error message:", error.message);
+      console.error("[DEBUG] Error stack:", error.stack);
+      console.error("[DEBUG] Error object:", error);
+      console.error('═══════════════════════════════════════════════════════');
+      
       toast({
         title: "Erro",
         description: error.message || "Erro ao salvar produto",
@@ -322,15 +363,26 @@ export function ModalProdutoV2({
     }
   };
 
+  // Função de validação que verifica campos obrigatórios
   const isFormValid = () => {
-    return (
-      watchedValues.codigo &&
-      watchedValues.nome &&
-      watchedValues.ncm &&
-      watchedValues.cfop_saida &&
-      watchedValues.cfop_entrada &&
-      Number(watchedValues.preco_venda) > 0
-    );
+    const camposObrigatorios = {
+      codigo: !!watchedValues.codigo,
+      nome: !!watchedValues.nome,
+      ncm: !!watchedValues.ncm && watchedValues.ncm.length === 8,
+      cfop_saida: !!watchedValues.cfop_saida && watchedValues.cfop_saida.length === 4,
+      cfop_entrada: !!watchedValues.cfop_entrada && watchedValues.cfop_entrada.length === 4,
+      preco_venda: Number(watchedValues.preco_venda) > 0,
+    };
+    
+    const todosPreenchidos = Object.values(camposObrigatorios).every(v => v === true);
+    const semErros = Object.keys(errors).length === 0;
+    
+    console.log('[DEBUG isFormValid] Campos obrigatórios:', camposObrigatorios);
+    console.log('[DEBUG isFormValid] Todos preenchidos:', todosPreenchidos);
+    console.log('[DEBUG isFormValid] Sem erros:', semErros);
+    console.log('[DEBUG isFormValid] Resultado final:', todosPreenchidos && semErros);
+    
+    return todosPreenchidos && semErros;
   };
 
   return (
@@ -349,23 +401,50 @@ export function ModalProdutoV2({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Status de Validação no Topo */}
+        {!isFormValid() && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-4">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+              <div>
+                <p className="text-sm font-medium text-red-800">
+                  Preencha todos os campos obrigatórios para criar o produto
+                </p>
+                <p className="text-xs text-red-600 mt-1">
+                  {Object.keys(errors).length > 0 
+                    ? `${Object.keys(errors).length} erro(s) de validação - verifique os campos abaixo`
+                    : 'Alguns campos obrigatórios ainda não foram preenchidos'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="basico" className="flex items-center">
-              <Package className="h-4 w-4 mr-2" />
-              Básico
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="basico" className="flex items-center justify-between">
+              <span className="flex items-center">
+                <Package className="h-4 w-4 mr-2" />
+                Básico
+              </span>
+              {(!watchedValues.codigo || !watchedValues.nome || !(Number(watchedValues.preco_venda) > 0)) && (
+                <span className="ml-2 h-2 w-2 bg-red-500 rounded-full animate-pulse" title="Campos obrigatórios pendentes"></span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="fiscal" className="flex items-center">
-              <Shield className="h-4 w-4 mr-2" />
-              Fiscal
+            <TabsTrigger value="fiscal" className="flex items-center justify-between">
+              <span className="flex items-center">
+                <Shield className="h-4 w-4 mr-2" />
+                Fiscal
+              </span>
+              {(!watchedValues.ncm || watchedValues.ncm.length !== 8 || 
+                !watchedValues.cfop_saida || watchedValues.cfop_saida.length !== 4 ||
+                !watchedValues.cfop_entrada || watchedValues.cfop_entrada.length !== 4) && (
+                <span className="ml-2 h-2 w-2 bg-red-500 rounded-full animate-pulse" title="Campos obrigatórios pendentes"></span>
+              )}
             </TabsTrigger>
             <TabsTrigger value="calculos" className="flex items-center">
               <Calculator className="h-4 w-4 mr-2" />
               Cálculos
-            </TabsTrigger>
-            <TabsTrigger value="validacao" className="flex items-center">
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Validação
             </TabsTrigger>
           </TabsList>
 
@@ -374,26 +453,38 @@ export function ModalProdutoV2({
             <TabsContent value="basico" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="codigo">Código *</Label>
+                  <Label htmlFor="codigo" className="flex items-center">
+                    Código <span className="text-red-500 ml-1">*</span>
+                  </Label>
                   <Input
                     id="codigo"
                     {...register("codigo")}
                     placeholder="Ex: PROD001"
+                    className={errors.codigo ? "border-red-500 border-2" : ""}
                   />
                   {errors.codigo && (
-                    <p className="text-sm text-red-600 mt-1">{errors.codigo.message}</p>
+                    <p className="text-sm text-red-600 mt-1 flex items-center">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      {errors.codigo.message}
+                    </p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="nome">Nome *</Label>
+                  <Label htmlFor="nome" className="flex items-center">
+                    Nome <span className="text-red-500 ml-1">*</span>
+                  </Label>
                   <Input
                     id="nome"
                     {...register("nome")}
                     placeholder="Nome do produto"
+                    className={errors.nome ? "border-red-500 border-2" : ""}
                   />
                   {errors.nome && (
-                    <p className="text-sm text-red-600 mt-1">{errors.nome.message}</p>
+                    <p className="text-sm text-red-600 mt-1 flex items-center">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      {errors.nome.message}
+                    </p>
                   )}
                 </div>
 
@@ -467,27 +558,38 @@ export function ModalProdutoV2({
                 </div>
 
                 <div>
-                  <Label htmlFor="preco_venda">Preço de Venda *</Label>
-                  <Input
+                  <Label htmlFor="preco_venda" className="text-sm font-medium text-gray-700 mb-1.5 flex items-center">
+                    Preço de Venda <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <InputValorMonetario
                     id="preco_venda"
-                    type="number"
-                    step="0.01"
-                    {...register("preco_venda", { valueAsNumber: true })}
+                    name="preco_venda"
+                    value={watchedValues.preco_venda as number}
+                    onChange={(valor) => setValue('preco_venda', valor || 0)}
                     placeholder="0,00"
+                    required
+                    prefixo="R$"
+                    error={errors.preco_venda?.message}
                   />
-                  {errors.preco_venda && (
-                    <p className="text-sm text-red-600 mt-1">{errors.preco_venda.message}</p>
+                  {!errors.preco_venda && !(Number(watchedValues.preco_venda) > 0) && (
+                    <p className="text-xs text-orange-600 mt-1 flex items-center">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      Campo obrigatório - Valor deve ser maior que zero
+                    </p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="custo">Custo</Label>
-                  <Input
+                  <Label htmlFor="custo" className="text-sm font-medium text-gray-700 mb-1.5 block">
+                    Custo <span className="text-xs text-gray-500">(opcional)</span>
+                  </Label>
+                  <InputValorMonetario
                     id="custo"
-                    type="number"
-                    step="0.01"
-                    {...register("custo", { valueAsNumber: true })}
+                    name="custo"
+                    value={watchedValues.custo as number}
+                    onChange={(valor) => setValue('custo', valor)}
                     placeholder="0,00"
+                    prefixo="R$"
                   />
                 </div>
 
@@ -577,28 +679,82 @@ export function ModalProdutoV2({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Seletores Fiscais */}
                 <div className="space-y-4">
-                  <SeletorNCM
-                    value={watchedValues.ncm || ""}
-                    onChange={handleNCMChange}
-                    placeholder="Digite o código NCM..."
-                  empresaId={empresaId || produto?.empresa_id}
-                  />
+                  <div>
+                    <Label className="flex items-center mb-2">
+                      NCM <span className="text-red-500 ml-1">*</span>
+                      <span className="text-xs text-gray-500 ml-2">(8 dígitos)</span>
+                    </Label>
+                    <SeletorNCM
+                      value={watchedValues.ncm || ""}
+                      onChange={handleNCMChange}
+                      placeholder="Digite o código NCM..."
+                      empresaId={empresaId || produto?.empresa_id}
+                    />
+                    {errors.ncm && (
+                      <p className="text-sm text-red-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        {errors.ncm.message}
+                      </p>
+                    )}
+                    {!errors.ncm && !watchedValues.ncm && (
+                      <p className="text-xs text-orange-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Campo obrigatório - Digite 8 dígitos do NCM
+                      </p>
+                    )}
+                  </div>
 
-                  <SeletorCFOP
-                    value={watchedValues.cfop_saida || ""}
-                    onChange={handleCFOPSaidaChange}
-                    tipo="SAIDA"
-                    placeholder="CFOP de Saída..."
-                  empresaId={empresaId || produto?.empresa_id}
-                  />
+                  <div>
+                    <Label className="flex items-center mb-2">
+                      CFOP de Saída <span className="text-red-500 ml-1">*</span>
+                      <span className="text-xs text-gray-500 ml-2">(4 dígitos)</span>
+                    </Label>
+                    <SeletorCFOP
+                      value={watchedValues.cfop_saida || ""}
+                      onChange={handleCFOPSaidaChange}
+                      tipo="SAIDA"
+                      placeholder="CFOP de Saída..."
+                      empresaId={empresaId || produto?.empresa_id}
+                    />
+                    {errors.cfop_saida && (
+                      <p className="text-sm text-red-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        {errors.cfop_saida.message}
+                      </p>
+                    )}
+                    {!errors.cfop_saida && !watchedValues.cfop_saida && (
+                      <p className="text-xs text-orange-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Campo obrigatório - Digite 4 dígitos do CFOP
+                      </p>
+                    )}
+                  </div>
 
-                  <SeletorCFOP
-                    value={watchedValues.cfop_entrada || ""}
-                    onChange={handleCFOPEntradaChange}
-                    tipo="ENTRADA"
-                    placeholder="CFOP de Entrada..."
-                  empresaId={empresaId || produto?.empresa_id}
-                  />
+                  <div>
+                    <Label className="flex items-center mb-2">
+                      CFOP de Entrada <span className="text-red-500 ml-1">*</span>
+                      <span className="text-xs text-gray-500 ml-2">(4 dígitos)</span>
+                    </Label>
+                    <SeletorCFOP
+                      value={watchedValues.cfop_entrada || ""}
+                      onChange={handleCFOPEntradaChange}
+                      tipo="ENTRADA"
+                      placeholder="CFOP de Entrada..."
+                      empresaId={empresaId || produto?.empresa_id}
+                    />
+                    {errors.cfop_entrada && (
+                      <p className="text-sm text-red-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        {errors.cfop_entrada.message}
+                      </p>
+                    )}
+                    {!errors.cfop_entrada && !watchedValues.cfop_entrada && (
+                      <p className="text-xs text-orange-600 mt-1 flex items-center">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Campo obrigatório - Digite 4 dígitos do CFOP
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Seletores CST */}
@@ -639,88 +795,150 @@ export function ModalProdutoV2({
               </div>
 
               {/* Configurações de Alíquotas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <Label htmlFor="aliquota_icms">Alíquota ICMS (%)</Label>
-                  <Input
-                    id="aliquota_icms"
-                    type="number"
-                    step="0.01"
-                    {...register("aliquota_icms", { valueAsNumber: true })}
-                    placeholder="0,00"
-                  />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <InputAliquota
+                  id="aliquota_icms"
+                  name="aliquota_icms"
+                  label="Alíquota ICMS (%)"
+                  value={watchedValues.aliquota_icms as number}
+                  onChange={(valor) => setValue('aliquota_icms', valor || 0)}
+                  placeholder="0,00"
+                  error={errors.aliquota_icms?.message}
+                  casasDecimais={2}
+                />
 
-                <div>
-                  <Label htmlFor="aliquota_ipi">Alíquota IPI (%)</Label>
-                  <Input
-                    id="aliquota_ipi"
-                    type="number"
-                    step="0.01"
-                    {...register("aliquota_ipi", { valueAsNumber: true })}
-                    placeholder="0,00"
-                  />
-                </div>
+                <InputAliquota
+                  id="aliquota_ipi"
+                  name="aliquota_ipi"
+                  label="Alíquota IPI (%) - opcional"
+                  value={watchedValues.aliquota_ipi as number}
+                  onChange={(valor) => setValue('aliquota_ipi', valor || 0)}
+                  placeholder="0,00"
+                  casasDecimais={2}
+                />
 
-                <div>
-                  <Label htmlFor="aliquota_pis">Alíquota PIS (%)</Label>
-                  <Input
-                    id="aliquota_pis"
-                    type="number"
-                    step="0.01"
-                    {...register("aliquota_pis", { valueAsNumber: true })}
-                    placeholder="0,00"
-                  />
-                </div>
+                <InputAliquota
+                  id="aliquota_pis"
+                  name="aliquota_pis"
+                  label="Alíquota PIS (%) - opcional"
+                  value={watchedValues.aliquota_pis as number}
+                  onChange={(valor) => setValue('aliquota_pis', valor || 0)}
+                  placeholder="0,00"
+                  casasDecimais={4}
+                  helpText="Até 4 casas decimais para maior precisão"
+                />
 
-                <div>
-                  <Label htmlFor="aliquota_cofins">Alíquota COFINS (%)</Label>
-                  <Input
-                    id="aliquota_cofins"
-                    type="number"
-                    step="0.01"
-                    {...register("aliquota_cofins", { valueAsNumber: true })}
-                    placeholder="0,00"
-                  />
-                </div>
+                <InputAliquota
+                  id="aliquota_cofins"
+                  name="aliquota_cofins"
+                  label="Alíquota COFINS (%) - opcional"
+                  value={watchedValues.aliquota_cofins as number}
+                  onChange={(valor) => setValue('aliquota_cofins', valor || 0)}
+                  placeholder="0,00"
+                  casasDecimais={4}
+                  helpText="Até 4 casas decimais para maior precisão"
+                />
+
+                <InputAliquota
+                  id="aliquota_ibs_cbs"
+                  name="aliquota_ibs_cbs"
+                  label={
+                    <span>
+                      Alíquota IBS/CBS (%)
+                      <span className="text-xs text-blue-600 ml-1 font-normal">(Reforma Tributária)</span>
+                    </span>
+                  }
+                  value={watchedValues.aliquota_ibs_cbs as number}
+                  onChange={(valor) => setValue('aliquota_ibs_cbs', valor)}
+                  placeholder="0,00"
+                  casasDecimais={2}
+                  helpText="Opcional - Novo tributo da Reforma Tributária"
+                />
+              </div>
+
+              {/* Campo de Observações */}
+              <div className="mt-4">
+                <Label htmlFor="observacoes">
+                  Observações
+                  <span className="text-xs text-gray-500 ml-1">(aparecerá na nota fiscal)</span>
+                </Label>
+                <Textarea
+                  id="observacoes"
+                  {...register("observacoes")}
+                  placeholder="Digite observações que aparecerão automaticamente na nota fiscal..."
+                  maxLength={500}
+                  rows={4}
+                  className="resize-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Máximo de 500 caracteres. {watchedValues.observacoes?.length || 0}/500
+                </p>
               </div>
             </TabsContent>
 
             {/* Aba Cálculos */}
             <TabsContent value="calculos">
               <CalculadoraImpostos
-                produto={{
-                  ...watchedValues,
-                  preco_venda: Number(watchedValues.preco_venda),
-                  custo: watchedValues.custo ? Number(watchedValues.custo) : undefined,
-                  aliquota_icms: Number(watchedValues.aliquota_icms),
-                  aliquota_ipi: watchedValues.aliquota_ipi ? Number(watchedValues.aliquota_ipi) : undefined,
-                  aliquota_pis: watchedValues.aliquota_pis ? Number(watchedValues.aliquota_pis) : undefined,
-                  aliquota_cofins: watchedValues.aliquota_cofins ? Number(watchedValues.aliquota_cofins) : undefined,
-                  icms_reducao_base_calculo: watchedValues.icms_reducao_base_calculo ? Number(watchedValues.icms_reducao_base_calculo) : undefined,
-                }}
+                produto={produtoParaCalculo}
                 quantidade={Number((watchedValues as any).quantidade || 1)}
                 valorUnitario={Number(watchedValues.preco_venda)}
                 onCalculationChange={handleCalculationChange}
               />
             </TabsContent>
 
-            {/* Aba Validação */}
-            <TabsContent value="validacao">
-              <ValidadorFiscal
-                produto={{
-                  ...watchedValues,
-                  preco_venda: Number(watchedValues.preco_venda),
-                  custo: watchedValues.custo ? Number(watchedValues.custo) : undefined,
-                  aliquota_icms: Number(watchedValues.aliquota_icms),
-                  aliquota_ipi: watchedValues.aliquota_ipi ? Number(watchedValues.aliquota_ipi) : undefined,
-                  aliquota_pis: watchedValues.aliquota_pis ? Number(watchedValues.aliquota_pis) : undefined,
-                  aliquota_cofins: watchedValues.aliquota_cofins ? Number(watchedValues.aliquota_cofins) : undefined,
-                  icms_reducao_base_calculo: watchedValues.icms_reducao_base_calculo ? Number(watchedValues.icms_reducao_base_calculo) : undefined,
-                }}
-                onValidationChange={handleValidationChange}
-              />
-            </TabsContent>
+            {/* Painel de Validação */}
+            {!isFormValid() && (() => {
+              // Log de debug quando painel aparece
+              if (Object.keys(errors).length > 0) {
+                console.error('═══════════════════════════════════════════════════════');
+                console.error('[ModalProdutoV2] ⚠️ ERROS DE VALIDAÇÃO DETECTADOS:');
+                console.error('═══════════════════════════════════════════════════════');
+                Object.keys(errors).forEach(campo => {
+                  console.error(`❌ ${campo}:`, (errors as any)[campo]?.message || 'Erro desconhecido');
+                });
+                console.error('═══════════════════════════════════════════════════════');
+              }
+              
+              return (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                  <div className="flex items-start">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 mr-2" />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-yellow-800 mb-2">
+                        Preencha os campos obrigatórios:
+                      </h4>
+                      <ul className="text-sm text-yellow-700 space-y-1">
+                        {!watchedValues.codigo && <li>• Código do produto</li>}
+                        {!watchedValues.nome && <li>• Nome do produto</li>}
+                        {(!watchedValues.ncm || watchedValues.ncm.length !== 8) && <li>• NCM (8 dígitos)</li>}
+                        {(!watchedValues.cfop_saida || watchedValues.cfop_saida.length !== 4) && <li>• CFOP de Saída (4 dígitos)</li>}
+                        {(!watchedValues.cfop_entrada || watchedValues.cfop_entrada.length !== 4) && <li>• CFOP de Entrada (4 dígitos)</li>}
+                        {!(Number(watchedValues.preco_venda) > 0) && <li>• Preço de Venda (maior que zero)</li>}
+                        {Object.keys(errors).length > 0 && (
+                          <li className="text-red-600 font-medium">
+                            • Corrija os erros de validação (veja abaixo de cada campo com erro)
+                          </li>
+                        )}
+                      </ul>
+                      
+                      {/* Mostrar erros específicos */}
+                      {Object.keys(errors).length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-yellow-300">
+                          <p className="text-xs font-semibold text-red-700 mb-2">Erros encontrados:</p>
+                          <ul className="text-xs text-red-600 space-y-1">
+                            {Object.keys(errors).map(campo => (
+                              <li key={campo}>
+                                • <strong>{campo}</strong>: {(errors as any)[campo]?.message}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Botões de ação */}
             <div className="flex justify-end space-x-2 pt-6 border-t">
@@ -735,6 +953,7 @@ export function ModalProdutoV2({
               <Button
                 type="submit"
                 disabled={loading || !isFormValid()}
+                className={!isFormValid() ? "opacity-50 cursor-not-allowed" : ""}
               >
                 {loading && <LoadingSpinner size="sm" className="mr-2" />}
                 {produto ? "Atualizar" : "Criar"} Produto

@@ -1,8 +1,23 @@
+/**
+ * API de Produto Individual - GET, PUT, DELETE
+ * FASE 3: Gestão de Produtos com Integração FOCUS NFE
+ * 
+ * Endpoints:
+ * - GET    /api/empresa/[id]/produtos/[produtoId] - Buscar produto
+ * - PUT    /api/empresa/[id]/produtos/[produtoId] - Atualizar produto
+ * - DELETE /api/empresa/[id]/produtos/[produtoId] - Excluir produto
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAuthFromRequest } from '@/lib/auth';
 import { produtoSchema } from '@/lib/validations/produtoSchema';
 import { z } from 'zod';
 
+/**
+ * GET /api/empresa/[id]/produtos/[produtoId]
+ * Buscar um produto específico
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; produtoId: string }> }
@@ -10,34 +25,43 @@ export async function GET(
   try {
     const { id: empresaId, produtoId } = await params;
 
-    const supabase = createSupabaseAdmin();
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
+    }
 
-    const { data: produto, error } = await supabase
+    const supabaseAdmin = createSupabaseAdmin();
+
+    // Buscar produto
+    const { data: produto, error } = await supabaseAdmin
       .from('produtos')
-      .select('*')
+      .select(`
+        *,
+        categoria:categorias_produtos(*)
+      `)
       .eq('id', produtoId)
       .eq('empresa_id', empresaId)
       .single();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Produto não encontrado' },
-          { status: 404 }
-        );
-      }
-      
       console.error('Erro ao buscar produto:', error);
       return NextResponse.json(
-        { error: 'Erro ao buscar produto' },
-        { status: 500 }
+        { error: 'Produto não encontrado' },
+        { status: 404 }
       );
     }
 
-    return NextResponse.json(produto);
+    return NextResponse.json({
+      success: true,
+      data: produto
+    });
 
   } catch (error) {
-    console.error('Erro na API de produto:', error);
+    console.error('Erro na API de busca de produto:', error);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }
@@ -45,76 +69,93 @@ export async function GET(
   }
 }
 
+/**
+ * PUT /api/empresa/[id]/produtos/[produtoId]
+ * Atualizar produto existente
+ */
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; produtoId: string }> }
 ) {
   try {
     const { id: empresaId, produtoId } = await params;
+    
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
+    }
+    
     const body = await request.json();
 
-    const validatedData = produtoSchema.parse(body);
+    // Validar dados do produto (partial para permitir atualizações parciais)
+    const dadosValidados = produtoSchema.partial().parse(body);
 
-    const supabase = createSupabaseAdmin();
+    const supabaseAdmin = createSupabaseAdmin();
 
-    // Verificar se produto existe
-    const { data: existingProduto } = await supabase
+    // Verificar se produto existe e pertence à empresa
+    const { data: produtoExistente, error: erroVerificacao } = await supabaseAdmin
       .from('produtos')
       .select('id')
       .eq('id', produtoId)
       .eq('empresa_id', empresaId)
       .single();
 
-    if (!existingProduto) {
+    if (erroVerificacao || !produtoExistente) {
       return NextResponse.json(
         { error: 'Produto não encontrado' },
         { status: 404 }
       );
     }
 
-    // Verificar se código já existe (exceto para o próprio produto)
-    if (validatedData.codigo) {
-      const { data: codigoExists } = await supabase
-        .from('produtos')
-        .select('id')
-        .eq('empresa_id', empresaId)
-        .eq('codigo', validatedData.codigo)
-        .neq('id', produtoId)
-        .single();
-
-      if (codigoExists) {
-        return NextResponse.json(
-          { error: 'Já existe um produto com este código' },
-          { status: 400 }
-        );
-      }
-    }
-
     // Atualizar produto
-    const { data: produto, error } = await supabase
+    const { data: produto, error } = await supabaseAdmin
       .from('produtos')
-      .update(validatedData)
+      .update({
+        ...dadosValidados,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', produtoId)
       .eq('empresa_id', empresaId)
-      .select()
+      .select(`
+        *,
+        categoria:categorias_produtos(*)
+      `)
       .single();
 
     if (error) {
       console.error('Erro ao atualizar produto:', error);
       return NextResponse.json(
-        { error: 'Erro ao atualizar produto' },
-        { status: 500 }
+        { error: 'Erro ao atualizar produto', details: error.message },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json(produto);
+    return NextResponse.json({
+      success: true,
+      data: produto,
+      message: 'Produto atualizado com sucesso'
+    });
 
   } catch (error) {
-    console.error('Erro na API de produto:', error);
-    
+    console.error('Erro na API de atualização de produto:', error);
+
     if (error instanceof z.ZodError) {
+      const details = error.errors && Array.isArray(error.errors)
+        ? error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
+        : [];
+      
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.issues },
+        {
+          error: 'Dados inválidos',
+          details
+        },
         { status: 400 }
       );
     }
@@ -126,6 +167,10 @@ export async function PUT(
   }
 }
 
+/**
+ * DELETE /api/empresa/[id]/produtos/[produtoId]
+ * Excluir produto
+ */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; produtoId: string }> }
@@ -133,42 +178,58 @@ export async function DELETE(
   try {
     const { id: empresaId, produtoId } = await params;
 
-    const supabase = createSupabaseAdmin();
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
+    }
 
-    // Verificar se produto existe
-    const { data: existingProduto } = await supabase
+    const supabaseAdmin = createSupabaseAdmin();
+
+    // Verificar se produto existe e pertence à empresa
+    const { data: produtoExistente, error: erroVerificacao } = await supabaseAdmin
       .from('produtos')
-      .select('id')
+      .select('id, nome')
       .eq('id', produtoId)
       .eq('empresa_id', empresaId)
       .single();
 
-    if (!existingProduto) {
+    if (erroVerificacao || !produtoExistente) {
       return NextResponse.json(
         { error: 'Produto não encontrado' },
         { status: 404 }
       );
     }
 
-    // Excluir produto
-    const { error } = await supabase
+    // Soft delete (marcar como inativo) ao invés de deletar permanentemente
+    // Isso mantém histórico para notas fiscais emitidas
+    const { error } = await supabaseAdmin
       .from('produtos')
-      .delete()
+      .update({
+        ativo: false,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', produtoId)
       .eq('empresa_id', empresaId);
 
     if (error) {
       console.error('Erro ao excluir produto:', error);
       return NextResponse.json(
-        { error: 'Erro ao excluir produto' },
-        { status: 500 }
+        { error: 'Erro ao excluir produto', details: error.message },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: 'Produto excluído com sucesso'
+    });
 
   } catch (error) {
-    console.error('Erro na API de produto:', error);
+    console.error('Erro na API de exclusão de produto:', error);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

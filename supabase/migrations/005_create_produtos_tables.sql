@@ -76,7 +76,7 @@ ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Usuários podem ver categorias da sua empresa" ON categorias_produtos
     FOR SELECT USING (
         empresa_id IN (
-            SELECT empresa_id FROM user_profiles 
+            SELECT empresa_id FROM users_profile 
             WHERE id = auth.uid() AND role IN ('admin', 'accountant')
         )
     );
@@ -84,7 +84,7 @@ CREATE POLICY "Usuários podem ver categorias da sua empresa" ON categorias_prod
 CREATE POLICY "Usuários podem gerenciar categorias da sua empresa" ON categorias_produtos
     FOR ALL USING (
         empresa_id IN (
-            SELECT empresa_id FROM user_profiles 
+            SELECT empresa_id FROM users_profile 
             WHERE id = auth.uid() AND role IN ('admin', 'accountant')
         )
     );
@@ -93,7 +93,7 @@ CREATE POLICY "Usuários podem gerenciar categorias da sua empresa" ON categoria
 CREATE POLICY "Usuários podem ver produtos da sua empresa" ON produtos
     FOR SELECT USING (
         empresa_id IN (
-            SELECT empresa_id FROM user_profiles 
+            SELECT empresa_id FROM users_profile 
             WHERE id = auth.uid() AND role IN ('admin', 'accountant')
         )
     );
@@ -101,7 +101,7 @@ CREATE POLICY "Usuários podem ver produtos da sua empresa" ON produtos
 CREATE POLICY "Usuários podem gerenciar produtos da sua empresa" ON produtos
     FOR ALL USING (
         empresa_id IN (
-            SELECT empresa_id FROM user_profiles 
+            SELECT empresa_id FROM users_profile 
             WHERE id = auth.uid() AND role IN ('admin', 'accountant')
         )
     );

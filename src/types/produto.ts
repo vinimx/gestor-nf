@@ -24,6 +24,10 @@ export interface Produto {
   aliquota_ipi: number;
   aliquota_pis: number;
   aliquota_cofins: number;
+  aliquota_ibs_cbs?: number; // Reforma Tributária
+  
+  // Observações (aparece na nota fiscal)
+  observacoes?: string;
   
   // Configurações ICMS
   icms_situacao_tributaria: string;
@@ -75,6 +79,8 @@ export interface ProdutoCreate {
   aliquota_ipi?: number;
   aliquota_pis?: number;
   aliquota_cofins?: number;
+  aliquota_ibs_cbs?: number; // Reforma Tributária
+  observacoes?: string; // Observações do produto (aparece na nota fiscal)
   icms_situacao_tributaria?: string;
   icms_origem?: string;
   icms_modalidade_base_calculo?: string;
@@ -216,4 +222,35 @@ export interface FocusCSTData {
   descricao: string;
   tipo: 'ICMS' | 'IPI' | 'PIS' | 'COFINS';
   aplicavel: boolean;
+}
+
+// Tipos para Nota Fiscal
+export interface ItemNotaFiscal {
+  id?: string;
+  produto_id?: string;
+  codigo_produto: string;
+  descricao: string;
+  ncm: string;
+  cfop: string;
+  unidade: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+  valor_desconto?: number;
+  observacoes?: string; // Observações do produto
+  aliquota_icms: number;
+  base_calculo_icms: number;
+  valor_icms: number;
+  aliquota_ipi?: number;
+  base_calculo_ipi?: number;
+  valor_ipi?: number;
+  aliquota_pis?: number;
+  base_calculo_pis?: number;
+  valor_pis?: number;
+  aliquota_cofins?: number;
+  base_calculo_cofins?: number;
+  valor_cofins?: number;
+  aliquota_ibs_cbs?: number; // Reforma Tributária
+  base_calculo_ibs_cbs?: number;
+  valor_ibs_cbs?: number;
 }

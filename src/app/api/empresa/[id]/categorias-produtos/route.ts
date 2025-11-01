@@ -1,55 +1,98 @@
+/**
+ * API de Categorias de Produtos - CRUD Completo
+ * FASE 3: Gestão de Produtos
+ * 
+ * Endpoints:
+ * - POST   /api/empresa/[id]/categorias-produtos - Criar categoria
+ * - GET    /api/empresa/[id]/categorias-produtos - Listar categorias
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAuthFromRequest } from '@/lib/auth';
+import { categoriaProdutoSchema } from '@/lib/validations/produtoSchema';
 import { z } from 'zod';
 
-const categoriaSchema = z.object({
-  nome: z.string().min(1, 'Nome é obrigatório').max(100),
-  descricao: z.string().optional(),
-  ativo: z.boolean().default(true),
-});
-
-export async function GET(
+/**
+ * POST /api/empresa/[id]/categorias-produtos
+ * Criar nova categoria
+ */
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: empresaId } = await params;
-    const { searchParams } = new URL(request.url);
     
-    const ativo = searchParams.get('ativo');
-    const order = searchParams.get('order') || 'nome';
-
-    const supabase = createSupabaseAdmin();
-
-    let query = supabase
-      .from('categorias_produtos')
-      .select('*', { count: 'exact' })
-      .eq('empresa_id', empresaId);
-
-    if (ativo !== null) {
-      query = query.eq('ativo', ativo === 'true');
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
     }
+    
+    const body = await request.json();
 
-    query = query.order(order, { ascending: true });
+    // Validar dados da categoria
+    const dadosValidados = categoriaProdutoSchema.parse(body);
 
-    const { data: categorias, error } = await query;
+    const supabaseAdmin = createSupabaseAdmin();
+
+    // Inserir categoria no banco
+    const { data: categoria, error } = await supabaseAdmin
+      .from('categorias_produtos')
+      .insert({
+        empresa_id: empresaId,
+        ...dadosValidados,
+      })
+      .select()
+      .single();
 
     if (error) {
-      console.error('Erro ao buscar categorias:', error);
+      console.error('Erro ao criar categoria:', error);
+      
+      // Verificar se é erro de duplicação
+      if (error.code === '23505') {
+        return NextResponse.json(
+          { error: 'Já existe uma categoria com este nome' },
+          { status: 409 }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Erro ao buscar categorias' },
-        { status: 500 }
+        { error: 'Erro ao criar categoria', details: error.message },
+        { status: 400 }
       );
     }
 
-    // Retornar no formato esperado pelo hook
     return NextResponse.json({
       success: true,
-      data: categorias || []
-    });
+      data: categoria,
+      message: 'Categoria criada com sucesso'
+    }, { status: 201 });
 
   } catch (error) {
-    console.error('Erro na API de categorias:', error);
+    console.error('Erro na API de criação de categoria:', error);
+
+    if (error instanceof z.ZodError) {
+      const details = error.errors && Array.isArray(error.errors)
+        ? error.errors.map(e => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
+        : [];
+      
+      return NextResponse.json(
+        {
+          error: 'Dados inválidos',
+          details
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }
@@ -57,63 +100,60 @@ export async function GET(
   }
 }
 
-export async function POST(
+/**
+ * GET /api/empresa/[id]/categorias-produtos
+ * Listar categorias da empresa
+ */
+export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: empresaId } = await params;
-    const body = await request.json();
-
-    const validatedData = categoriaSchema.parse(body);
-
-    const supabase = createSupabaseAdmin();
-
-    // Verificar se nome já existe
-    const { data: existingCategoria } = await supabase
-      .from('categorias_produtos')
-      .select('id')
-      .eq('empresa_id', empresaId)
-      .eq('nome', validatedData.nome)
-      .single();
-
-    if (existingCategoria) {
+    
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
       return NextResponse.json(
-        { error: 'Já existe uma categoria com este nome' },
-        { status: 400 }
+        { error: "Não autorizado" },
+        { status: 401 }
       );
     }
+    
+    const { searchParams } = new URL(request.url);
 
-    // Criar categoria
-    const { data: categoria, error } = await supabase
+    const apenasAtivas = searchParams.get('ativo') === 'true';
+
+    const supabaseAdmin = createSupabaseAdmin();
+
+    // Buscar categorias
+    let query = supabaseAdmin
       .from('categorias_produtos')
-      .insert({
-        ...validatedData,
-        empresa_id: empresaId,
-      })
-      .select()
-      .single();
+      .select('*')
+      .eq('empresa_id', empresaId)
+      .order('nome', { ascending: true });
+
+    if (apenasAtivas) {
+      query = query.eq('ativo', true);
+    }
+
+    const { data: categorias, error } = await query;
 
     if (error) {
-      console.error('Erro ao criar categoria:', error);
+      console.error('Erro ao buscar categorias:', error);
       return NextResponse.json(
-        { error: 'Erro ao criar categoria' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(categoria, { status: 201 });
-
-  } catch (error) {
-    console.error('Erro na API de categorias:', error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Dados inválidos', details: error.issues },
+        { error: 'Erro ao buscar categorias', details: error.message },
         { status: 400 }
       );
     }
 
+    return NextResponse.json({
+      success: true,
+      data: categorias || []
+    });
+
+  } catch (error) {
+    console.error('Erro na API de listagem de categorias:', error);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

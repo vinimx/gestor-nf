@@ -66,6 +66,18 @@ export function SeletorNCM({
     return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
+  // Sincronizar searchTerm com value externo (importante para manter valor ao trocar de aba)
+  useEffect(() => {
+    // Evitar loop: só atualizar se realmente diferente E não estiver vazio
+    if (value && value.length === 8 && searchTerm !== value) {
+      setSearchTerm(value);
+      // Atualizar o input visual também
+      if (inputRef.current && inputRef.current.value !== value) {
+        inputRef.current.value = value;
+      }
+    }
+  }, [value]); // Não incluir searchTerm na dependência para evitar loop
+
   // Validar NCM quando value muda (mas não se já está selecionado o mesmo código)
   useEffect(() => {
     // Pular validação se o searchTerm corresponde ao value (significa que acabamos de selecionar)

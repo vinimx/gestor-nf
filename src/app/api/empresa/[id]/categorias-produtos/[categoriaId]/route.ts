@@ -1,104 +1,67 @@
+/**
+ * API de Categoria Individual - PUT, DELETE
+ * FASE 3: Gestão de Produtos
+ * 
+ * Endpoints:
+ * - PUT    /api/empresa/[id]/categorias-produtos/[categoriaId] - Atualizar categoria
+ * - DELETE /api/empresa/[id]/categorias-produtos/[categoriaId] - Excluir categoria
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAuthFromRequest } from '@/lib/auth';
+import { categoriaProdutoSchema } from '@/lib/validations/produtoSchema';
 import { z } from 'zod';
 
-const categoriaSchema = z.object({
-  nome: z.string().min(1, 'Nome é obrigatório').max(100),
-  descricao: z.string().optional(),
-  ativo: z.boolean().default(true),
-});
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; categoriaId: string }> }
-) {
-  try {
-    const { id: empresaId, categoriaId } = await params;
-
-    const supabase = createSupabaseAdmin();
-
-    const { data: categoria, error } = await supabase
-      .from('categorias_produtos')
-      .select('*')
-      .eq('id', categoriaId)
-      .eq('empresa_id', empresaId)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Categoria não encontrada' },
-          { status: 404 }
-        );
-      }
-      
-      console.error('Erro ao buscar categoria:', error);
-      return NextResponse.json(
-        { error: 'Erro ao buscar categoria' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(categoria);
-
-  } catch (error) {
-    console.error('Erro na API de categoria:', error);
-    return NextResponse.json(
-      { error: 'Erro interno do servidor' },
-      { status: 500 }
-    );
-  }
-}
-
+/**
+ * PUT /api/empresa/[id]/categorias-produtos/[categoriaId]
+ * Atualizar categoria existente
+ */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string; categoriaId: string }> }
+  { params }: { params: { id: string; categoriaId: string } }
 ) {
   try {
-    const { id: empresaId, categoriaId } = await params;
+    const { id: empresaId, categoriaId } = params;
+    
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
+    }
+    
     const body = await request.json();
 
-    const validatedData = categoriaSchema.parse(body);
+    // Validar dados da categoria
+    const dadosValidados = categoriaProdutoSchema.partial().parse(body);
 
-    const supabase = createSupabaseAdmin();
+    const supabaseAdmin = createSupabaseAdmin();
 
-    // Verificar se categoria existe
-    const { data: existingCategoria } = await supabase
+    // Verificar se categoria existe e pertence à empresa
+    const { data: categoriaExistente, error: erroVerificacao } = await supabaseAdmin
       .from('categorias_produtos')
       .select('id')
       .eq('id', categoriaId)
       .eq('empresa_id', empresaId)
       .single();
 
-    if (!existingCategoria) {
+    if (erroVerificacao || !categoriaExistente) {
       return NextResponse.json(
         { error: 'Categoria não encontrada' },
         { status: 404 }
       );
     }
 
-    // Verificar se nome já existe (exceto para a própria categoria)
-    if (validatedData.nome) {
-      const { data: nomeExists } = await supabase
-        .from('categorias_produtos')
-        .select('id')
-        .eq('empresa_id', empresaId)
-        .eq('nome', validatedData.nome)
-        .neq('id', categoriaId)
-        .single();
-
-      if (nomeExists) {
-        return NextResponse.json(
-          { error: 'Já existe uma categoria com este nome' },
-          { status: 400 }
-        );
-      }
-    }
-
     // Atualizar categoria
-    const { data: categoria, error } = await supabase
+    const { data: categoria, error } = await supabaseAdmin
       .from('categorias_produtos')
-      .update(validatedData)
+      .update({
+        ...dadosValidados,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', categoriaId)
       .eq('empresa_id', empresaId)
       .select()
@@ -106,20 +69,36 @@ export async function PUT(
 
     if (error) {
       console.error('Erro ao atualizar categoria:', error);
+      
+      // Verificar se é erro de duplicação
+      if (error.code === '23505') {
+        return NextResponse.json(
+          { error: 'Já existe uma categoria com este nome' },
+          { status: 409 }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Erro ao atualizar categoria' },
-        { status: 500 }
+        { error: 'Erro ao atualizar categoria', details: error.message },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json(categoria);
+    return NextResponse.json({
+      success: true,
+      data: categoria,
+      message: 'Categoria atualizada com sucesso'
+    });
 
   } catch (error) {
-    console.error('Erro na API de categoria:', error);
-    
+    console.error('Erro na API de atualização de categoria:', error);
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.issues },
+        {
+          error: 'Dados inválidos',
+          details: error.errors
+        },
         { status: 400 }
       );
     }
@@ -131,6 +110,10 @@ export async function PUT(
   }
 }
 
+/**
+ * DELETE /api/empresa/[id]/categorias-produtos/[categoriaId]
+ * Excluir categoria (soft delete)
+ */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; categoriaId: string }> }
@@ -138,17 +121,26 @@ export async function DELETE(
   try {
     const { id: empresaId, categoriaId } = await params;
 
-    const supabase = createSupabaseAdmin();
+    // Verificar autenticação
+    const { user, error: authError } = await requireAuthFromRequest(request);
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Não autorizado" },
+        { status: 401 }
+      );
+    }
 
-    // Verificar se categoria existe
-    const { data: existingCategoria } = await supabase
+    const supabaseAdmin = createSupabaseAdmin();
+
+    // Verificar se categoria existe e pertence à empresa
+    const { data: categoriaExistente, error: erroVerificacao } = await supabaseAdmin
       .from('categorias_produtos')
-      .select('id')
+      .select('id, nome')
       .eq('id', categoriaId)
       .eq('empresa_id', empresaId)
       .single();
 
-    if (!existingCategoria) {
+    if (erroVerificacao || !categoriaExistente) {
       return NextResponse.json(
         { error: 'Categoria não encontrada' },
         { status: 404 }
@@ -156,38 +148,51 @@ export async function DELETE(
     }
 
     // Verificar se há produtos usando esta categoria
-    const { data: produtosComCategoria } = await supabase
+    const { count, error: erroContagem } = await supabaseAdmin
       .from('produtos')
-      .select('id')
+      .select('id', { count: 'exact', head: true })
       .eq('categoria_id', categoriaId)
-      .limit(1);
+      .eq('ativo', true);
 
-    if (produtosComCategoria && produtosComCategoria.length > 0) {
+    if (erroContagem) {
+      console.error('Erro ao verificar produtos da categoria:', erroContagem);
+    }
+
+    if (count && count > 0) {
       return NextResponse.json(
-        { error: 'Não é possível excluir categoria que possui produtos' },
+        {
+          error: 'Não é possível excluir esta categoria',
+          message: `Existem ${count} produto(s) ativo(s) nesta categoria. Desative ou mova os produtos antes de excluir.`
+        },
         { status: 400 }
       );
     }
 
-    // Excluir categoria
-    const { error } = await supabase
+    // Soft delete (marcar como inativa)
+    const { error } = await supabaseAdmin
       .from('categorias_produtos')
-      .delete()
+      .update({
+        ativo: false,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', categoriaId)
       .eq('empresa_id', empresaId);
 
     if (error) {
       console.error('Erro ao excluir categoria:', error);
       return NextResponse.json(
-        { error: 'Erro ao excluir categoria' },
-        { status: 500 }
+        { error: 'Erro ao excluir categoria', details: error.message },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: 'Categoria excluída com sucesso'
+    });
 
   } catch (error) {
-    console.error('Erro na API de categoria:', error);
+    console.error('Erro na API de exclusão de categoria:', error);
     return NextResponse.json(
       { error: 'Erro interno do servidor' },
       { status: 500 }

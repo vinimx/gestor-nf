@@ -24,7 +24,7 @@ export default function ProdutosPage() {
   const isPageVisible = useRef(true);
   
   const [query, setQuery] = useState<ProdutoQuery>({
-    search: "",
+    search: undefined,
     tipo: undefined,
     categoria_id: undefined,
     ativo: undefined,
@@ -244,7 +244,11 @@ export default function ProdutosPage() {
   };
 
   const handleSearchChange = (search: string) => {
-    setQuery(prev => ({ ...prev, search, offset: 0 }));
+    setQuery(prev => ({ 
+      ...prev, 
+      search: search.trim() === '' ? undefined : search, 
+      offset: 0 
+    }));
   };
 
   const handleSortChange = (sort: string, order: "asc" | "desc") => {

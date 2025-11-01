@@ -85,9 +85,9 @@ export function ListaProdutos({
       }
 
       const searchParams = new URLSearchParams();
-      if (query.search) searchParams.set("search", query.search);
-      if (query.tipo) searchParams.set("tipo", query.tipo);
-      if (query.categoria_id) searchParams.set("categoria_id", query.categoria_id);
+      if (query.search && query.search.trim() !== '') searchParams.set("search", query.search);
+      if (query.tipo && query.tipo !== 'all') searchParams.set("tipo", query.tipo);
+      if (query.categoria_id && query.categoria_id !== 'all') searchParams.set("categoria_id", query.categoria_id);
       if (query.ativo !== undefined) searchParams.set("ativo", query.ativo.toString());
       searchParams.set("limit", query.limit.toString());
       searchParams.set("offset", query.offset.toString());
@@ -102,13 +102,37 @@ export function ListaProdutos({
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro ao carregar produtos');
+        let errorData: any = {};
+        try {
+          // Tentar parsear JSON apenas se houver conteúdo
+          const text = await response.text();
+          if (text) {
+            errorData = JSON.parse(text);
+          }
+        } catch (parseError) {
+          console.error('[ListaProdutos] Erro ao parsear resposta:', parseError);
+        }
+        
+        console.error('[ListaProdutos] Erro da API:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData
+        });
+        
+        const errorMessage = errorData.message || errorData.error || `Erro ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      setProdutos(data.data);
-      setPagination(data.pagination);
+      setProdutos(data.data || []);
+      setPagination(data.pagination || {
+        total: 0,
+        limit: query.limit,
+        offset: query.offset,
+        hasMore: false,
+        totalPages: 0,
+        currentPage: 1,
+      });
     } catch (err) {
       console.error('Erro ao buscar produtos:', err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar produtos');

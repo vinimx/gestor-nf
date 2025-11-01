@@ -25,6 +25,11 @@ interface CalculosImpostos {
     aliquota: number;
     valor: number;
   };
+  ibs_cbs?: {
+    baseCalculo: number;
+    aliquota: number;
+    valor: number;
+  };
   total: {
     valorProdutos: number;
     valorImpostos: number;
@@ -98,6 +103,24 @@ export function useCalculadoraImpostos(): UseCalculadoraImpostosResult {
     return { pis, cofins };
   }, []);
 
+  // Função para calcular IBS/CBS (Reforma Tributária)
+  const calcularIBSCBS = useCallback((
+    valorProduto: number,
+    aliquota?: number
+  ): { baseCalculo: number; valor: number } | null => {
+    if (!aliquota || aliquota <= 0) {
+      return null;
+    }
+
+    const baseCalculo = valorProduto;
+    const valor = baseCalculo * (aliquota / 100);
+    
+    return {
+      baseCalculo: Math.round(baseCalculo * 100) / 100,
+      valor: Math.round(valor * 100) / 100,
+    };
+  }, []);
+
   // Função principal para calcular impostos
   const calcularImpostos = useCallback((
     produto: Partial<Produto>,
@@ -136,8 +159,14 @@ export function useCalculadoraImpostos(): UseCalculadoraImpostosResult {
         produto.aliquota_cofins || 0
       );
 
-      // Calcular totais
-      const valorImpostos = icms.valor + ipi.valor + pisCofins.pis.valor + pisCofins.cofins.valor;
+      // Calcular IBS/CBS (Reforma Tributária)
+      const ibsCbs = calcularIBSCBS(
+        valorProduto,
+        produto.aliquota_ibs_cbs
+      );
+
+      // Calcular totais (incluindo IBS/CBS se aplicável)
+      const valorImpostos = icms.valor + ipi.valor + pisCofins.pis.valor + pisCofins.cofins.valor + (ibsCbs?.valor || 0);
       const valorTotal = valorProduto + valorImpostos;
 
       const novosCalculos: CalculosImpostos = {
@@ -162,6 +191,13 @@ export function useCalculadoraImpostos(): UseCalculadoraImpostosResult {
           aliquota: produto.aliquota_cofins || 0,
           valor: pisCofins.cofins.valor,
         },
+        ...(ibsCbs && {
+          ibs_cbs: {
+            baseCalculo: ibsCbs.baseCalculo,
+            aliquota: produto.aliquota_ibs_cbs || 0,
+            valor: ibsCbs.valor,
+          }
+        }),
         total: {
           valorProdutos: valorProduto,
           valorImpostos: valorImpostos,
@@ -177,7 +213,7 @@ export function useCalculadoraImpostos(): UseCalculadoraImpostosResult {
     } finally {
       setLoading(false);
     }
-  }, [calcularICMS, calcularIPI, calcularPISCofins]);
+  }, [calcularICMS, calcularIPI, calcularPISCofins, calcularIBSCBS]);
 
   // Função para limpar cálculos
   const limparCalculos = useCallback(() => {

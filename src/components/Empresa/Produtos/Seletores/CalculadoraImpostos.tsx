@@ -48,14 +48,26 @@ export function CalculadoraImpostos({
     if (produto && (produto.preco_venda || localValorUnitario)) {
       calcularImpostos(produto, localQuantidade, localValorUnitario);
     }
-  }, [produto, localQuantidade, localValorUnitario, calcularImpostos]);
+  }, [
+    // Usar propriedades específicas ao invés do objeto completo para evitar loop
+    produto?.preco_venda,
+    produto?.aliquota_icms,
+    produto?.aliquota_ipi,
+    produto?.aliquota_pis,
+    produto?.aliquota_cofins,
+    produto?.aliquota_ibs_cbs,
+    produto?.icms_reducao_base_calculo,
+    localQuantidade,
+    localValorUnitario,
+    calcularImpostos
+  ]);
 
   // Notificar mudanças nos cálculos
   useEffect(() => {
     if (calculos && onCalculationChange) {
       onCalculationChange(calculos);
     }
-  }, [calculos, onCalculationChange]);
+  }, [calculos]); // Remover onCalculationChange para evitar loops (está estável com useCallback)
 
   const handleQuantidadeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuantidade = parseFloat(e.target.value) || 0;
@@ -211,6 +223,23 @@ export function CalculadoraImpostos({
                   {formatCurrency(calculos.cofins.valor)}
                 </div>
               </div>
+
+              {/* IBS/CBS - Reforma Tributária */}
+              {calculos.ibs_cbs && (
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-md">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-indigo-800">IBS/CBS</span>
+                    {getImpostoIcon(calculos.ibs_cbs.aliquota)}
+                  </div>
+                  <div className={cn("text-lg font-bold", getImpostoColor(calculos.ibs_cbs.aliquota))}>
+                    {calculos.ibs_cbs.aliquota.toFixed(2)}%
+                  </div>
+                  <div className="text-sm text-indigo-600">
+                    {formatCurrency(calculos.ibs_cbs.valor)}
+                  </div>
+                  <div className="text-xs text-indigo-500 mt-1">Reforma Tributária</div>
+                </div>
+              )}
             </div>
 
             {/* Totais */}
